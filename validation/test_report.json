@@ -1,0 +1,148 @@
+{
+  "bundle_sha256": "be0a993d6c66cd5e0b637f755453951f72399e041e8081545850af9306db03e1",
+  "passed": 35,
+  "failed": 0,
+  "scope": "17 reused core/storage tests plus native extension integration; mock DOM and fake API, not real SillyTavern browser validation",
+  "results": [
+    {
+      "name": "all migrated YAML initials validate and greeting matches",
+      "pass": true
+    },
+    {
+      "name": "reject duplicate YAML keys, anchors, reserved properties and invalid clocks",
+      "pass": true
+    },
+    {
+      "name": "JSONPatch wrapper parsing and empty patch",
+      "pass": true
+    },
+    {
+      "name": "patch atomic validation, unsafe paths and missing paths",
+      "pass": true
+    },
+    {
+      "name": "custom variables and dynamic inventory survive updates",
+      "pass": true
+    },
+    {
+      "name": "snapshot template validates source rather than inserted state text",
+      "pass": true
+    },
+    {
+      "name": "URL normalization and protocol safety",
+      "pass": true
+    },
+    {
+      "name": "seed, independent current state and sequential missing floors",
+      "pass": true
+    },
+    {
+      "name": "regeneration isolates and restores reply branches",
+      "pass": true
+    },
+    {
+      "name": "editing prior user invalidates downstream and deletion rolls back",
+      "pass": true
+    },
+    {
+      "name": "recompute replaces latest result, never applies twice to same current state",
+      "pass": true
+    },
+    {
+      "name": "recompute earlier node invalidates old descendant parent tokens",
+      "pass": true
+    },
+    {
+      "name": "deleting original opening cannot silently seed an event floor",
+      "pass": true
+    },
+    {
+      "name": "state isolation by chat and character identity",
+      "pass": true
+    },
+    {
+      "name": "stale write, quota failure, and corrupt record preserve old bytes",
+      "pass": true
+    },
+    {
+      "name": "inactive branch pruning preserves complete active path",
+      "pass": true
+    },
+    {
+      "name": "full archive roundtrip validates and missing parent rejects",
+      "pass": true
+    },
+    {
+      "name": "native extension boots without any Tavern Helper globals and mounts three pages and both entries",
+      "pass": true
+    },
+    {
+      "name": "independent API auto update after native streaming lifecycle and manual non-additive recompute",
+      "pass": true
+    },
+    {
+      "name": "regenerate and swipe use prior snapshot at BOTH early generation hooks",
+      "pass": true
+    },
+    {
+      "name": "quiet/dry runs and loading/edited existing chat never trigger automatic billing",
+      "pass": true
+    },
+    {
+      "name": "ENDED then STOPPED does not settle partial streaming output",
+      "pass": true
+    },
+    {
+      "name": "switch away clears prompt and hides ball; unsupported group cannot modify storage",
+      "pass": true
+    },
+    {
+      "name": "late body-read cancellation and changed-chat results never commit",
+      "pass": true
+    },
+    {
+      "name": "legacy helper configuration is read as direct without silently rewriting credential record",
+      "pass": true
+    },
+    {
+      "name": "legacy namespace and chat state are preserved exactly on initial native load",
+      "pass": true
+    },
+    {
+      "name": "missing Web Locks and lock held by another tab are truly read-only",
+      "pass": true
+    },
+    {
+      "name": "failed remembered-key save is atomic and malformed record cannot be overwritten",
+      "pass": true
+    },
+    {
+      "name": "config export never includes remembered key and state import requires matching transcript",
+      "pass": true
+    },
+    {
+      "name": "native entry ball toggle persists and cleanup removes prompts, subscriptions and own DOM only",
+      "pass": true
+    },
+    {
+      "name": "old running script is detected without takeover or state writes",
+      "pass": true
+    },
+    {
+      "name": "extension-card removes only the old state script and retains all story/worldbook contents",
+      "pass": true
+    },
+    {
+      "name": "regenerate with trailing user does not roll back already settled AI state",
+      "pass": true
+    },
+    {
+      "name": "explicit recovery handles command and failed preflight missing ENDED without automatic API calls",
+      "pass": true
+    },
+    {
+      "name": "native active generation blocks explicit recovery even when local end never arrived",
+      "pass": true
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+# Never publish credentials, exported private state or local tools
+.env
+.env.*
+!.env.example
+*secret*
+*credential*
+*token*
+*.pem
+*.key
+*.zip
+node_modules/
+.gh/
+gh-portable/
+localStorage/
+backups/
+exports/
+.DS_Store
+Thumbs.db

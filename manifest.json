@@ -1,0 +1,12 @@
+{
+  "display_name": "黎北 · 独立状态面板",
+  "loading_order": 200,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "",
+  "author": "黎北状态面板",
+  "version": "1.0.0",
+  "homePage": "https://github.com/allen0217s/libei-status",
+  "auto_update": false
+}
