@@ -1,0 +1,127 @@
+{
+  "passed": 19,
+  "failed": 0,
+  "bundle_sha256": "b8fbe2dd3dae6c0569cbfb1906ae0a90fae4110da94518cbbe71c1bbefb33342",
+  "realSillyTavernTest": false,
+  "mockApiOnly": true,
+  "checks": [
+    {
+      "name": "实际Shadow DOM界面和原状态链已就绪",
+      "passed": true
+    },
+    {
+      "name": "魔杖/顶栏/输入框/每楼/书签入口存在",
+      "passed": true
+    },
+    {
+      "name": "规则校验拒绝非法导入且不改存档",
+      "passed": true
+    },
+    {
+      "name": "跟随主API使用generateRaw且过滤默认MVU条目",
+      "passed": true
+    },
+    {
+      "name": "外部楼层入口与下拉选择同步",
+      "passed": true
+    },
+    {
+      "name": "新增草稿取消不会保存",
+      "passed": true
+    },
+    {
+      "name": "拉模型使用酒馆同源status且支持模型列表",
+      "passed": true
+    },
+    {
+      "name": "测试渠道不持久化草稿",
+      "passed": true
+    },
+    {
+      "name": "完成渠道保存且按任务显式选择副渠道",
+      "passed": true
+    },
+    {
+      "name": "副API经ST代理更新状态而不切换主连接",
+      "passed": true
+    },
+    {
+      "name": "截断length响应不写入任何新状态节点",
+      "passed": true
+    },
+    {
+      "name": "整本世界书勾选即时保存而关闭不回滚",
+      "passed": true
+    },
+    {
+      "name": "整本排除及条目排除共同作用且原书不变",
+      "passed": true
+    },
+    {
+      "name": "副API取消丢弃结果",
+      "passed": true
+    },
+    {
+      "name": "等待Web Locks时切换上下文不会重定向请求",
+      "passed": true
+    },
+    {
+      "name": "删除渠道需确认并清除任务指派",
+      "passed": true
+    },
+    {
+      "name": "移动端按原布局使用底部导航且无横向溢出",
+      "passed": true
+    },
+    {
+      "name": "界面无未捕获JS错误且无外部网络",
+      "passed": true
+    },
+    {
+      "name": "销毁回收所有入口和界面",
+      "passed": true
+    }
+  ],
+  "screenshots": [
+    {
+      "name": "01-state.png",
+      "x": 105,
+      "y": 85,
+      "width": 890,
+      "height": 830,
+      "scale": 1
+    },
+    {
+      "name": "02-settings.png",
+      "x": 105,
+      "y": 85,
+      "width": 890,
+      "height": 830,
+      "scale": 1
+    },
+    {
+      "name": "03-channel.png",
+      "x": 285,
+      "y": 121.46875,
+      "width": 530,
+      "height": 757.0625,
+      "scale": 1
+    },
+    {
+      "name": "04-worldbook-exclude.png",
+      "x": 285,
+      "y": 337.796875,
+      "width": 530,
+      "height": 324.390625,
+      "scale": 1
+    },
+    {
+      "name": "05-mobile.png",
+      "x": 0,
+      "y": 28.765625,
+      "width": 390,
+      "height": 815.234375,
+      "scale": 1
+    }
+  ]
+}

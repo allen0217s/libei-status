@@ -1,0 +1,199 @@
+{
+  "scope": "API / settings / worldbooks unit regression",
+  "productionSourceChanged": false,
+  "realNetworkRequests": 0,
+  "builtUnder": ".test-api",
+  "limitations": [
+    "No real SillyTavern server or supplier was contacted.",
+    "Supported checkWorldInfo path uses a test-build-only dynamic import URL substitution; production source remains unchanged.",
+    "Missing checkWorldInfo uses the unmodified production dynamic import and its actual import failure in Node.",
+    "Main generateRaw cancellation cannot stop the real host request; this test documents the limitation, not bridge stale-result discard.",
+    "Settings-page DOM CRUD is covered by integration/browser tests, not this isolated module suite."
+  ],
+  "results": [
+    {
+      "name": "settings: ready gate prevents pre-hydrate and hydrate writes",
+      "status": "passed",
+      "durationMs": 59
+    },
+    {
+      "name": "settings: default template execution is off; UI schema retained",
+      "status": "passed",
+      "durationMs": 3
+    },
+    {
+      "name": "settings: legacy detection and import draft do not upload or delete old key",
+      "status": "passed",
+      "durationMs": 2
+    },
+    {
+      "name": "settings: explicit draft commit stores plain key and resolved survives reload",
+      "status": "passed",
+      "durationMs": 4
+    },
+    {
+      "name": "settings: explicit main choice resolves migration without importing key",
+      "status": "passed",
+      "durationMs": 3
+    },
+    {
+      "name": "settings: unknown nonempty assignment is preserved, never rewritten to main",
+      "status": "passed",
+      "durationMs": 2
+    },
+    {
+      "name": "settings: no read/write of BaiBai namespaces and no localStorage writes",
+      "status": "passed",
+      "durationMs": 3
+    },
+    {
+      "name": "settings: malformed channels normalized and duplicate IDs repaired",
+      "status": "passed",
+      "durationMs": 3
+    },
+    {
+      "name": "validation: valid channel and ordinary parameter exclusion accepted",
+      "status": "passed",
+      "durationMs": 0
+    },
+    {
+      "name": "validation: every routing/credential/message field is protected",
+      "status": "passed",
+      "durationMs": 0
+    },
+    {
+      "name": "validation: missing URL/model, unsupported protocol, embedded credentials rejected",
+      "status": "passed",
+      "durationMs": 0
+    },
+    {
+      "name": "validation: nonfinite/out-of-range/fractional numeric settings rejected",
+      "status": "passed",
+      "durationMs": 0
+    },
+    {
+      "name": "client: openai body, custom effort and YAML-sensitive key JSON escaping",
+      "status": "passed",
+      "durationMs": 0
+    },
+    {
+      "name": "client: whitespace effort stays openai; exclusions affect both request branches",
+      "status": "passed",
+      "durationMs": 0
+    },
+    {
+      "name": "client: completion uses ST proxy headers, normalized base and exact messages",
+      "status": "passed",
+      "durationMs": 3
+    },
+    {
+      "name": "client: nonstream finish_reason=length rejects otherwise valid text",
+      "status": "passed",
+      "durationMs": 1
+    },
+    {
+      "name": "client: HTTP errors and upstream JSON errors reject",
+      "status": "passed",
+      "durationMs": 1
+    },
+    {
+      "name": "client: SSE appends deltas and rejects finish_reason=length",
+      "status": "passed",
+      "durationMs": 2
+    },
+    {
+      "name": "client: SSE EOF without newline preserves final data and detects truncated tail",
+      "status": "passed",
+      "durationMs": 0
+    },
+    {
+      "name": "client: DONE ends immediately and ignores subsequent data/error",
+      "status": "passed",
+      "durationMs": 0
+    },
+    {
+      "name": "client: SSE split UTF8 and split lines reconstruct intact text",
+      "status": "passed",
+      "durationMs": 1
+    },
+    {
+      "name": "client: SSE upstream error rejects; comment and heartbeat tolerated",
+      "status": "passed",
+      "durationMs": 1
+    },
+    {
+      "name": "client: external AbortSignal reaches active proxy request",
+      "status": "passed",
+      "durationMs": 1
+    },
+    {
+      "name": "client: main API uses generateRaw without independent api override; cancel limitation documented",
+      "status": "passed",
+      "durationMs": 0
+    },
+    {
+      "name": "client: model list proxy normalizes and sorts strings/ids without model requirement",
+      "status": "passed",
+      "durationMs": 0
+    },
+    {
+      "name": "client: testChannel retries alternate /v1 only for HTTP 404/405 and persists candidate on success",
+      "status": "passed",
+      "durationMs": 1
+    },
+    {
+      "name": "worldbooks: exact whole-book names and case-insensitive comment regex OR semantics",
+      "status": "passed",
+      "durationMs": 0
+    },
+    {
+      "name": "worldbooks: invalid regex falls back to literal case-insensitive substring",
+      "status": "passed",
+      "durationMs": 0
+    },
+    {
+      "name": "worldbooks: position buckets, depth descending and order ascending without mutation",
+      "status": "passed",
+      "durationMs": 0
+    },
+    {
+      "name": "worldbooks: explicit old target uses frozen chat and excludes future/system text",
+      "status": "passed",
+      "durationMs": 1
+    },
+    {
+      "name": "worldbooks: Set/Map collection filters excluded entries before rendering",
+      "status": "passed",
+      "durationMs": 1
+    },
+    {
+      "name": "worldbooks: disabled templates do not run macros/EJS; enabled refFloor is last target",
+      "status": "passed",
+      "durationMs": 0
+    },
+    {
+      "name": "worldbooks: excluded single character returns empty; group does not use single-name exclusion",
+      "status": "passed",
+      "durationMs": 0
+    },
+    {
+      "name": "worldbooks: pre-aborted and mid-check aborted results reject",
+      "status": "passed",
+      "durationMs": 0
+    },
+    {
+      "name": "worldbooks: production missing checkWorldInfo refuses fail-open when rules exist",
+      "status": "passed",
+      "durationMs": 3
+    },
+    {
+      "name": "worldbooks: missing check fallback allowed only with explicitly empty rules",
+      "status": "passed",
+      "durationMs": 4
+    }
+  ],
+  "completedAt": "2026-10-24T02:49:42.241Z",
+  "total": 36,
+  "passed": 36,
+  "failed": 0
+}
