@@ -266,6 +266,14 @@ function createLibeiStatusCore(YAML) {
   function cleanMessage(raw) {
     return String(raw || '').replace(/<(?:UpdateVariable|update)>[\s\S]*?<\/(?:UpdateVariable|update)>/gi, '').replace(/<StatusPlaceHolderImpl\s*\/>/gi, '').trim();
   }
+  const LEGACY_GENERIC_INITIAL_FINGERPRINT = '096af72971003b5b';
+  function isLegacyGenericInitial(initial) {
+    if (!object(initial) || Object.keys(initial).sort().join(',') !== 'id,label,match,text' || initial.id !== 'default' || initial.label !== '通用初值 · 三月初十' || initial.match !== '' || typeof initial.text !== 'string') return false;
+    const bytes = new TextEncoder().encode([initial.id, initial.label, initial.match, initial.text].join('\0'));
+    let hash = 0xcbf29ce484222325n;
+    for (const byte of bytes) hash = ((hash ^ BigInt(byte)) * 0x100000001b3n) & 0xffffffffffffffffn;
+    return hash.toString(16).padStart(16, '0') === LEGACY_GENERIC_INITIAL_FINGERPRINT;
+  }
   function validateRules(rules) {
     inspect(rules);
     if (!object(rules) || !Array.isArray(rules.initials) || rules.initials.length < 1 || rules.initials.length > 20) fail('初值方案应有 1～20 个。');
@@ -273,20 +281,33 @@ function createLibeiStatusCore(YAML) {
     for (const initial of rules.initials) {
       if (!object(initial) || typeof initial.id !== 'string' || ids.has(initial.id)) fail('初值方案 ID 无效或重复。');
       ids.add(initial.id);
-      if (typeof initial.label !== 'string' || typeof initial.match !== 'string') fail('初值方案资料不完整。');
+      if (typeof initial.label !== 'string') fail('初值方案资料不完整。');
       parseYaml(initial.text);
     }
-    if (rules.initialChoice !== 'auto' && !ids.has(rules.initialChoice)) fail('选择的初值方案不存在。');
+    if (typeof rules.initialChoice !== 'string' || (rules.initialChoice !== '' && rules.initialChoice !== 'auto' && !ids.has(rules.initialChoice))) fail('选择的初值方案不存在。');
     for (const field of ['updateRules', 'outputFormat', 'numericRules', 'snapshotTemplate']) {
       if (typeof rules[field] !== 'string' || rules[field].length > 100000) fail('规则文字无效或过长：' + field);
     }
     if (!rules.updateRules.trim() || !rules.outputFormat.trim()) fail('更新规则和输出格式不能为空。');
     return rules;
   }
-  function chooseInitial(rules, greeting) {
-    const chosen = rules.initialChoice === 'auto'
-      ? rules.initials.find(i => i.match && cleanMessage(i.match) === cleanMessage(greeting)) || rules.initials[0]
-      : rules.initials.find(i => i.id === rules.initialChoice);
+  function migrateRules(source) {
+    if (!object(source)) fail('规则配置无效。');
+    const rules = clone(source);
+    if (!Array.isArray(rules.initials)) fail('初值方案应有 1～20 个。');
+    const stockIndex = rules.initials.findIndex(isLegacyGenericInitial);
+    if (stockIndex >= 0 && rules.initials.length > 1) {
+      const [removed] = rules.initials.splice(stockIndex, 1);
+      if (rules.initialChoice === removed.id) rules.initialChoice = '';
+    }
+    if (rules.initialChoice === 'auto' || rules.initialChoice == null) rules.initialChoice = '';
+    for (const initial of rules.initials) if (object(initial)) delete initial.match;
+    return validateRules(rules);
+  }
+  function chooseInitial(rules) {
+    if (!rules.initialChoice || rules.initialChoice === 'auto') return null;
+    const chosen = rules.initials.find(i => i.id === rules.initialChoice);
+    if (!chosen) fail('选择的初值方案不存在。');
     return { id: chosen.id, label: chosen.label, state: parseYaml(chosen.text) };
   }
   function snapshotText(template, state) {
@@ -307,7 +328,7 @@ function createLibeiStatusCore(YAML) {
     if (!/\/chat\/completions$/i.test(u.pathname)) u.pathname += '/chat/completions';
     return u.href;
   }
-  return { own, object, clone, inspect, parseYaml, validateState, parsePatch, applyPatch, pointer, cleanMessage, validateRules, chooseInitial, snapshotText, buildMessages, apiUrl };
+  return { own, object, clone, inspect, parseYaml, validateState, parsePatch, applyPatch, pointer, cleanMessage, validateRules, migrateRules, chooseInitial, snapshotText, buildMessages, apiUrl };
 }
 
 /* Independent localStorage timeline. No MVU/assistant-variable dependency. */
@@ -374,11 +395,11 @@ function createLibeiTimelineStore(C, storage, namespace) {
     if (!view.path.length) {
       if (first.id !== 0) throw Error('缺少原始 AI 开场：不会将后续事件楼当作初值。请还原开场或导入对应存档。');
       if (doc.nodes.length) {
-        const known = doc.seedRules.initials.some(i => i.match && C.cleanMessage(i.match) === first.body);
         const priorRootInSwipes = (chat[0]?.swipes || []).some(text => doc.nodes.some(n => n.parent === null && n.source.at(-1)?.body === C.cleanMessage(text)));
-        if (!known && !priorRootInSwipes) throw Error('原开场已删除或改写，暂停自动初始化。请恢复原开场或导入相符存档，避免吞掉首个事件。');
+        if (!priorRootInSwipes) throw Error('原开场已删除或改写，暂停自动初始化。请恢复原开场或导入相符存档，避免吞掉首个事件。');
       }
-      const chosen = C.chooseInitial(doc.seedRules, first.body);
+      const chosen = C.chooseInitial(doc.seedRules);
+      if (!chosen) return view;
       doc.nodes.push({ token: token(), parent: null, id: first.id, source: view.messages.slice(0, first.id + 1), state: chosen.state, initialId: chosen.id, createdAt: Date.now() });
       view = reconcile(doc, chat);
     }
@@ -400,6 +421,7 @@ function createLibeiTimelineStore(C, storage, namespace) {
   }
   function synchronize(scope, rules) {
     const snapshot = read(scope, rules), before = serial(snapshot.doc);
+    if (!snapshot.doc.nodes.length) snapshot.doc.seedRules = clone(rules);
     const view = seed(snapshot.doc, scope.chat); current(snapshot.doc, view);
     const saved = serial(snapshot.doc) === before && snapshot.raw !== null ? snapshot : commit(snapshot, snapshot.doc);
     return { ...saved, view: reconcile(saved.doc, scope.chat) };
@@ -464,7 +486,7 @@ function createLibeiNativeBridge(host) {
   return { getContext, api, eventTypes: first.eventTypes };
 }
 
-const DEFAULTS={"cardName": "黎北的府邸生活", "namespace": "libei.independent-status.v1.621746c1", "rules": {"initials": [{"id": "default", "label": "通用初值 · 三月初十", "match": "", "text": "世界:\n  日期: 三月初十\n  时间: '09:00'\n  地点: 前院·门厅\n黎北:\n  钱财: 60\n  精液: 40\n  精液算式: ''\n  穿着:\n    内衬:\n      衣物: 一件干净的白粗布短褂，无领，袖口挽着\n      遮露: 肩背与腰腹都盖着\n    上装:\n      衣物: 一件簇新的青灰粗布短打，袖口还没磨软\n      遮露: 上身都盖着\n    下装:\n      衣物: 一条簇新的粗布单裤，裤脚放着\n      遮露: 腰以下都盖着\n    鞋履:\n      衣物: 一双新布鞋，鞋面还硬，走路有点磨脚跟\n      遮露: 脚都盖着\n  阳具: 软着，贴着腿，布料干着\n  随身物品:\n    包袱: 蓝布包袱，里头两件换洗衣裳、一双旧草鞋\n    短刀: 山里带来的短刀，裹在包袱里\n  想法: 门槛比我膝盖还高，砖是青的，瓦是叠的，比山里那两间土坯房大了不知多少倍。周爷看我那一眼，跟看一头误闯进来的野物没两样。表哥拍胸脯担保的时候，我站在边上，手不知道往哪儿放。往后就在这儿做活了，衣裳得穿整，眼睛得收着，别给表哥惹麻烦。\n"}, {"id": "greeting-0", "label": "开场 1 · 三月十四井台", "match": "三月十四，辰时，后院井台。\r\n\r\n两只大木桶搁在青石板上，水珠沿着浸透了的桐油木箍往下淌，在石板缝隙里聚成浅浅的水洼。黎北弓着腰把第三担井水倒进后罩房外的大缸里，直起腰时长长出了一口气。粗麻单衫早被井水和热汗浇了个透，紧绷绷地贴在鼓胀方正的胸膛上，深麦色的皮肉轮廓毕露，两颗暗褐色的硬粒顶着单薄的布料凸出来。\r\n\r\n在霍府待了四五天，前院后院的规矩摸熟了大半。卯时点卯，接着便要把后院这几口大缸挑满，辰时大厨房开饭，一刻也耽误不得。\r\n\r\n黎破虏从大厨房后门迈着大步走出来，手里攥着两只刚出屉的白面大馒头，赤着的宽阔上身泛着冷白的皮色，只系了一条厚帆布围裙，几道被灶火烘出的薄红挂在臂膀上。他抬眼扫了扫黎北挑满的两大缸水，鼻腔里哼出一声满意的闷音，将手里热腾腾的馒头直接塞到了黎北赤露的掌心里。\r\n\r\n“手脚倒是快，没给老子丢脸。”黎破虏粗着嗓子道，抬手在黎北结实的肩膀上重重拍了一记，目光落在他下身被井水打湿、紧紧贴在大腿肉上的粗麻裤裆上，“赶紧吃了换身干爽衣裳。等会儿去杂物库把西跨院要换的几块青砖搬过去，少奶奶院里的花架子底下塌了半截，走路仔细着点，别东张西望。”\r\n\r\n正说着，沈砚安手里拎着一把竹丝马刷，顺着后院夹道一路小跑过来，额角上挂着细汗，浅麦色的俊俏面庞上带着笑意，眼睛直勾勾落在黎北湿透的胸背上，热切地唤道：“北哥，大厨房今儿熬了浓稠的红豆稀饭，我替你盛了一大碗在房里晾着呢，你挑完水快回屋喝去。”\r\n\r\n黎破虏斜睨了沈砚安一眼，把围裙往腰后拽了拽，转身往厨房大灶走去：“行了，都别磨蹭，管事房的周算盘一会儿该出来巡视了。”", "text": "世界:\r\n  日期: 三月十四\r\n  时间: '07:30'\r\n  地点: 后院·井台\r\n黎北:\r\n  钱财: 60\r\n  精液: 84\r\n  精液算式: ''\r\n  穿着:\r\n    内衬:\r\n      衣物: 无\r\n      遮露: 双臂、肩背与腰腹裸露，被汗水与井水打湿\r\n    上装:\r\n      衣物: 一件洗得发白的无袖粗布短打，前襟大敞且被水浸透\r\n      遮露: 贴在胸背皮肉上，胸肌与腹肌轮廓完全透显\r\n    下装:\r\n      衣物: 一条粗麻宽腿单裤，腰间扎粗麻绊带，被水泼湿紧贴皮肉\r\n      遮露: 腰腹以下盖着，但下身粗硕轮廓被湿布勾勒无遗\r\n    鞋履:\r\n      衣物: 一双旧草鞋，沾满井水与泥渣\r\n      遮露: 双脚大半裸露，脚面踩湿\r\n  阳具: 疲软垂坠，粗沉发胀，湿透的粗麻单裤紧裹着沉甸甸的肉物贴在左侧大腿内侧\r\n  随身物品:\r\n    扁担与水桶: 一根桑木扁担、两只吃饱了水的大木桶\r\n    热馒头: 黎破虏塞过来的两只白面大馒头，正冒着热汽\r\n  想法: 来府里干了四五天，挑水搬抬的活计倒算顺手，这一身力气总算没白长。表哥面冷心热，暗地里总照应着我；砚安这小子也成天黏前跑后，眼神热得叫人有点招架不住。只是少奶奶住的西跨院平时严实得很，待会儿过去送青砖，脚底下得放轻些，免得冲撞了内宅贵人。"}, {"id": "greeting-1", "label": "开场 2 · 三月十二井台", "match": "三月十二，卯时，后院井台。\r\n\r\n天还没亮透，井台上那层青石泛着凉气。黎北摸黑起身，穿衣裳不用点灯，出了后罩房的门，脚底下已经熟。夹道西边那段墙皮掉了，他绕开，把肩上的扁担换了一头。\r\n\r\n这是进府的第三天。哪儿是哪儿，他大略都摸清了：水缸在东头灶间外头，柴堆在大厨房后墙根，内院角门辰时开，夜里只留一处给值夜的人走。\r\n\r\n井绳放下去，辘轳吱呀一声，绳子在木轴上磨得发涩。桶到底沉了一沉，他两手换着绞，胳膊上绷起的筋一条条显出来。满桶提上来，井口腾起一层白气，扫到他脸上。\r\n\r\n沈砚安抱着一只碗蹲在井台边，碗里是昨晚剩的粥，冻得结了皮。他拿筷子戳了两下，抬眼就笑。\r\n\r\n\"北哥，你那手还疼不疼？\"他往黎北手心里瞄，\"头一天绞绳，绳子磨得跟刀似的。\"\r\n\r\n黎北摊开手。掌心两道红痕，已经结了薄薄一层皮。他没吭声，把水倒进桶里，又去够第二桶。\r\n\r\n\"我今儿要去槽头添料。\"沈砚安嚼着凉粥，话没停，\"下晌还得跑一趟前院送信。北哥，你说我要跟二管事求一求，能不能换我去挑水？挑水多痛快。\"\r\n\r\n\"挑水的活重。\"\r\n\r\n\"重才好。重才显得出力气。\"\r\n\r\n井台上又来了人。春桃提着一只木盆，走得快，裙裾擦过石阶。她把盆往地上一蹲，抬眼就看见黎北敞着的衣襟和湿了半截的裤脚。\r\n\r\n\"三天就混成这副样子。\"她哼了一声，弯腰往盆里舀水，\"府里有府里的规矩，你天天光着膀子在井台晃，回头别说是谁带坏的。\"\r\n\r\n黎北抬眼笑了笑，没接话。\r\n\r\n春桃的手一顿，把水瓢往盆里一摁。\r\n\r\n\"笑有什么用。\"她直起腰，声音快起来，\"少爷卯时三刻要用热水。这一担先送东厢，剩下的再灌缸。听见没有？\"\r\n\r\n沈砚安在一边扯了扯黎北的袖子，声音压得很低：\"北哥，她这三天天不亮就来，天天有话说。\"", "text": "世界:\r\n  日期: 三月十二\r\n  时间: '06:00'\r\n  地点: 后院·井台\r\n黎北:\r\n  钱财: 60\r\n  精液: 52\r\n  精液算式: ''\r\n  穿着:\r\n    内衬:\r\n      衣物: 白粗布短褂，衣襟散着挂在腰上\r\n      遮露: 肩背与胸膛露着，腰腹被短褂下摆盖着\r\n    上装:\r\n      衣物: 无\r\n      遮露: 上身只剩一件散着的短褂，没有外衣\r\n    下装:\r\n      衣物: 一条洗得半旧的粗布单裤，裤脚挽到小腿\r\n      遮露: 腰以下遮着，膝盖以上露着\r\n    鞋履:\r\n      衣物: 一双旧布鞋，鞋帮磨开了口\r\n      遮露: 脚都盖着\r\n  阳具: 软着，贴着腿，布料被晨起的潮气贴着\r\n  随身物品: {}\r\n  想法: 三天下来，路认得了，人也认得了大半。沈砚安一刻不闲，春桃那张嘴厉害，可她今儿说话前先看了我一眼，才把脸转开。手心的痕还疼，绞绳不能停。这一担送去东厢，不知道又要碰见谁。攒的那几十文压在包袱底下，得先换一双结实些的布鞋，这双鞋底快磨穿了。"}], "initialChoice": "auto", "updateRules": "---\n变量更新规则:\n  总则:\n    check:\n      - 每轮回复写完之后，按这一轮剧情里确实发生的事情更新下面的变量\n      - 只改已经发生的，不替玩家预设他还没做的选择\n      - 依据本轮正文事实与当前变量快照提交。路径相对于 stat_data；没有变化就提交空数组\n      - 只用 add / replace / remove 三种 op：新出现的键用 add，已存在的键用 replace，删掉用 remove\n  世界.日期:\n    type: string\n    format: 月日，如 三月十二\n    check:\n      - 和世界.时间一起往后推\n      - 时间过了 24:00（即次日零点）就算到了第二天，日期跟着加一天\n      - 当月排完就进下一个月，按大小月的实际天数进位\n      - 正文旁白交代过去了多久，这两个变量要和正文对得上\n  世界.时间:\n    type: string\n    format: 24 小时制，HH:MM，如 08:00、14:30、23:50\n    check:\n      - 只写 HH:MM，两位小时两位分钟，中间一个冒号。不要写\"卯时\"\"傍晚\"\"深夜\"这类说法\n      - 按 24 小时推进：一段独处、一场谈话、一次搬抬，往后推一到两个小时\n      - 过完一夜就跳到第二天早上 06:00 或 07:00，同时把世界.日期加一天\n      - 这一项要写准，元精的加值按这里的时间差算\n  世界.地点:\n    type: string\n    check:\n      - 人一移动就更新\n      - 从府里的地名写起，用\"·\"分层，例如 前院·门厅、后院·井台、西跨院·正房、大厨房·后门、内书房、后罩房\n      - 出了府就写街面上的地名，例如 城东·皮货行、城东·霍家铺面\n  黎北.钱财:\n    type: number\n    range: 0~100000\n    value: 身上现钱，单位文。只记钱，不记在随身物品里\n    check:\n      - 买货、付账、打赏就减；领月钱、卖皮子、得赏就加\n      - 物价与工钱按「月钱与用度」条目里写的算，不要自己另外编数\n      - 钱不够时就如实写下来，并且让黎北为钱发愁\n  黎北.精液:\n    type: number\n    range: 0~9999\n    value: 体内蓄积的量，单位毫升。不设上限，不配状态词\n    check:\n      - 先在 <Analysis> 里把这一轮的加减算清楚，再填最终数，不要凭感觉给一个值\n      - 加：按本轮的时间推进算。把这一轮改写为「从 X 点到 Y 点，共 N 小时，N×6=加值」，N 只取整小时，不足一小时的部分舍去\n      - 例：世界.时间从 09:00 改到 12:00，共 3 小时，3×6=18\n      - 例：从 09:00 改到 09:40，不足 1 小时，N=0，不加\n      - 跨天要先算天数：从 三月初十 09:00 到 三月十一 09:00，共 24 小时，24×6=144\n      - 同一轮里时间没有推进，就不加\n      - 减：按「射精与遗精」条目里写的规则减，射精、醒着遗精、梦遗各按各的档位\n      - 加和减都在同一轮里算出最终值再提交，不要分两次写\n      - 最终值不许是负数，不够减就落到 0\n  黎北.精液算式:\n    type: string\n    value: 本轮精液的加减，写成一行算式，给状态栏显示\n    check:\n      - 和 黎北.精液 在同一个 JSONPatch 里提交，先把这个数算完，再照它写算式\n      - 照这个写法：上轮 旧值 ＋加值（几小时×6）－减项 ＝ 新值\n      - 例：上轮 40 ＋18（3 小时×6）－15（射精）＝ 43\n      - 加值按世界.时间推进的整小时算，一小时 6 毫升；不足一小时的部分不写加值\n      - 减项照「射精与遗精」里的档位，写明是射精、清醒遗精还是梦遗；没泄就不写减项\n      - 时间没推进也没泄，就写：上轮 40 ＝ 40（未动）\n      - 末尾的数必须和 黎北.精液 一模一样\n      - 只写算式，不写身子怎样、心里怎样\n  黎北.穿着.${内衬|上装|下装|鞋履}:\n    type: |-\n      {\n        衣物: string; // 这件叫什么、什么样：布料、颜色、样式；脱掉写\"无\"\n        遮露: string; // 这一层管的身体部位现在遮着还是露着\n      }\n    check:\n      - 内衬与上装管手臂、肩膀、胸部、腰腹；下装管腰以下那一处；鞋履管脚\n      - 每个部位都写清现在是遮着还是露着：遮着就写被哪件衣物盖住；露着就写怎么露的、露到什么程度\n      - 脱掉一层，这层的衣物写\"无\"，它管的部位全部改成裸露；穿回去再写回原样\n      - 置办了新衣裳，就把这一层的衣物名称和样子换掉\n      - 下装只管衣物与遮露；那一处本身的样子写在 黎北.阳具 里，不要在这里重复\n  黎北.阳具:\n    type: string\n    value: 腰以下那一处此刻的样子\n    check:\n      - 写：挺着还是软着、硬到什么程度、朝哪边贴、有没有翘起来、布料有没有被顶起或洇湿\n      - 本来的大小和颜色按「角色卡」条目里写的算，不要自己另编\n      - 只有在它真的起了变化时才改写这一项；没变化就不动\n      - 别写成一句景话，写它此刻的实状\n  黎北.随身物品:\n    type: |-\n      {\n        [物品名: string]: string; // 这东西是什么、现在什么样子、还剩多少\n      }\n    check:\n      - 只记此刻带在身上的东西，不记钱（钱走黎北.钱财）\n      - 放在房里、寄放在别处的不写在这里，等重新拿到手上再加回来\n      - 新得的东西只要带在身上就 add 一项；卖掉、弄丢、放下不带的就 remove 掉\n      - 用了就改这一项的文字说明还剩多少，例如\"箭，用剩三支\"\n      - 皮囊、包裹里装着什么要如实记在那一项里\n  黎北.想法:\n    type: string\n    value: 黎北此刻心里的转悠，第一人称\n    check:\n      - 每轮用一段第一人称的话写，把心里的纠结、犹豫、拿不定都写出来\n      - 想开口又咽回去、想应下又怕、想走开又舍不得，这种来回要写清楚，不要写成一句干净利落的短句\n      - 精液不到 100 时，念头落在眼前的事上：钱、活计、住处、跟前这个人\n      - 精液达到 100 时，念头明显往身体上跑，坐立不安，一点小事就点着\n      - 想法不得包含正文里没有发生的事，也不得替玩家决定还没做的选择\n      - 这只是心里的话，不写进正文\n", "outputFormat": "---\n<update_variable_rules>\nrule:\n  - 在本轮回复的最末尾，一次性输出变量分析和实际更新命令\n  - 更新命令必须严格遵循 JSON Patch (RFC 6902) 标准，但只能使用三种操作：`replace`（替换已存在的路径）、`add`（仅用于向对象新增键）、`remove`（删除路径）\n  - 输出必须是一个合法的 JSON 数组，数组元素为操作对象\n  - 路径相对于 stat_data，用斜杠分隔，例如 /世界/时间、/黎北/钱财\n  - 没有变化时输出空数组\nformat: |-\n  <UpdateVariable>\n  <Analysis>$(用中文，不超过 200 字)\n  - 本轮过了多久：从……到……，共几个整小时\n  - 这一轮是否属于特殊情况（时间跨度异常大）：是／否\n  - 逐个说明变化的变量，依据它对应的 `check` 只在当前回复里发生的事，不参考以前的剧情\n  - 数值变量写出算式：旧值 (X) 加 变化量 (Y) 等于 新值 (Z)\n  - 精液另在 黎北.精液算式 里写成一行加减\n  </Analysis>\n  <JSONPatch>\n  [\n    { \"op\": \"replace\", \"path\": \"/世界/时间\", \"value\": \"10:00\" },\n    { \"op\": \"replace\", \"path\": \"/黎北/精液\", \"value\": 46 },\n    { \"op\": \"replace\", \"path\": \"/黎北/精液算式\", \"value\": \"上轮 40 ＋6（1 小时×6）＝ 46\" },\n    { \"op\": \"add\", \"path\": \"/黎北/随身物品/油纸包\", \"value\": \"油纸包着的两只肉包，还烫手\" },\n    { \"op\": \"remove\", \"path\": \"/黎北/随身物品/包袱\" }\n  ]\n  </JSONPatch>\n  </UpdateVariable>\n</update_variable_rules>\n", "numericRules": "射精与遗精:\n  蓄积与满溢判定:\n    - 阈值设定: 精液数值达到 100 即判定为【必定满溢】状态。\n    - 满溢强制逻辑: 一旦数值 ≥ 100，阳气与元精彻底充盈外溢，无法通过意志强行压制，该状态下在当前轮次或下一判定周期内【必定触发满溢泄出】（涵盖主动射精、清醒遗精或梦遗）。\n    - 状态影响: 满溢状态下身体燥热紧绷，心绪难宁，稍微受到触碰、颠簸、温热刺激或言语撩拨即刻走火渗漏。\n  日常射精:\n    触发条件: 满溢状态下主动宣泄，或与人苟合云雨。\n    数值结算: 单次消耗 10 至 20 毫升。\n    状态反馈: 泄后阳具由硬转软，腰胯酸沉，体魄燥热渐退；需避人清理痕迹与气味。\n  清醒遗精:\n    触发条件: 精液 ≥ 100 处于满溢状态且未及行事，日常走动、搬抬劳作或稍受荤话热气烘烤时被动触发。\n    数值结算: 单次溢出 10 至 20 毫升。\n    状态反馈: 无预兆渗出，裤裆洇湿黏热；动作停滞遮掩，神情发僵。\n  梦遗:\n    触发条件: 精液在睡眠推进中达到或保持 ≥ 100 满溢状态，醒来必定结算一次梦遗。\n    数值结算: 单次溢出 20 至 40 毫升。\n    状态反馈: 醒时亵裤与床褥湿凉黏腻，须趁无人察觉时擦拭翻转遮掩。\n  规则约束:\n    - 只要精液数值结算后仍 ≥ 100，判定持续生效，下一轮推进继续强制执行满溢逻辑，直至数值降至 100 以下。", "snapshotTemplate": "---\n<status_current_variable>\n{{format_message_variable::stat_data}}\n</status_current_variable>"}};
+const DEFAULTS={"cardName":"黎北的府邸生活","namespace":"libei.independent-status.v1.621746c1","rules":{"initials":[{"id":"greeting-0","label":"开场 1 · 三月十四井台","text":"世界:\r\n  日期: 三月十四\r\n  时间: '07:30'\r\n  地点: 后院·井台\r\n黎北:\r\n  钱财: 60\r\n  精液: 84\r\n  精液算式: ''\r\n  穿着:\r\n    内衬:\r\n      衣物: 无\r\n      遮露: 双臂、肩背与腰腹裸露，被汗水与井水打湿\r\n    上装:\r\n      衣物: 一件洗得发白的无袖粗布短打，前襟大敞且被水浸透\r\n      遮露: 贴在胸背皮肉上，胸肌与腹肌轮廓完全透显\r\n    下装:\r\n      衣物: 一条粗麻宽腿单裤，腰间扎粗麻绊带，被水泼湿紧贴皮肉\r\n      遮露: 腰腹以下盖着，但下身粗硕轮廓被湿布勾勒无遗\r\n    鞋履:\r\n      衣物: 一双旧草鞋，沾满井水与泥渣\r\n      遮露: 双脚大半裸露，脚面踩湿\r\n  阳具: 疲软垂坠，粗沉发胀，湿透的粗麻单裤紧裹着沉甸甸的肉物贴在左侧大腿内侧\r\n  随身物品:\r\n    扁担与水桶: 一根桑木扁担、两只吃饱了水的大木桶\r\n    热馒头: 黎破虏塞过来的两只白面大馒头，正冒着热汽\r\n  想法: 来府里干了四五天，挑水搬抬的活计倒算顺手，这一身力气总算没白长。表哥面冷心热，暗地里总照应着我；砚安这小子也成天黏前跑后，眼神热得叫人有点招架不住。只是少奶奶住的西跨院平时严实得很，待会儿过去送青砖，脚底下得放轻些，免得冲撞了内宅贵人。"},{"id":"greeting-1","label":"开场 2 · 三月十二井台","text":"世界:\r\n  日期: 三月十二\r\n  时间: '06:00'\r\n  地点: 后院·井台\r\n黎北:\r\n  钱财: 60\r\n  精液: 52\r\n  精液算式: ''\r\n  穿着:\r\n    内衬:\r\n      衣物: 白粗布短褂，衣襟散着挂在腰上\r\n      遮露: 肩背与胸膛露着，腰腹被短褂下摆盖着\r\n    上装:\r\n      衣物: 无\r\n      遮露: 上身只剩一件散着的短褂，没有外衣\r\n    下装:\r\n      衣物: 一条洗得半旧的粗布单裤，裤脚挽到小腿\r\n      遮露: 腰以下遮着，膝盖以上露着\r\n    鞋履:\r\n      衣物: 一双旧布鞋，鞋帮磨开了口\r\n      遮露: 脚都盖着\r\n  阳具: 软着，贴着腿，布料被晨起的潮气贴着\r\n  随身物品: {}\r\n  想法: 三天下来，路认得了，人也认得了大半。沈砚安一刻不闲，春桃那张嘴厉害，可她今儿说话前先看了我一眼，才把脸转开。手心的痕还疼，绞绳不能停。这一担送去东厢，不知道又要碰见谁。攒的那几十文压在包袱底下，得先换一双结实些的布鞋，这双鞋底快磨穿了。"}],"initialChoice":"","updateRules":"---\n变量更新规则:\n  总则:\n    check:\n      - 每轮回复写完之后，按这一轮剧情里确实发生的事情更新下面的变量\n      - 只改已经发生的，不替玩家预设他还没做的选择\n      - 依据本轮正文事实与当前变量快照提交。路径相对于 stat_data；没有变化就提交空数组\n      - 只用 add / replace / remove 三种 op：新出现的键用 add，已存在的键用 replace，删掉用 remove\n  世界.日期:\n    type: string\n    format: 月日，如 三月十二\n    check:\n      - 和世界.时间一起往后推\n      - 时间过了 24:00（即次日零点）就算到了第二天，日期跟着加一天\n      - 当月排完就进下一个月，按大小月的实际天数进位\n      - 正文旁白交代过去了多久，这两个变量要和正文对得上\n  世界.时间:\n    type: string\n    format: 24 小时制，HH:MM，如 08:00、14:30、23:50\n    check:\n      - 只写 HH:MM，两位小时两位分钟，中间一个冒号。不要写\"卯时\"\"傍晚\"\"深夜\"这类说法\n      - 按 24 小时推进：一段独处、一场谈话、一次搬抬，往后推一到两个小时\n      - 过完一夜就跳到第二天早上 06:00 或 07:00，同时把世界.日期加一天\n      - 这一项要写准，元精的加值按这里的时间差算\n  世界.地点:\n    type: string\n    check:\n      - 人一移动就更新\n      - 从府里的地名写起，用\"·\"分层，例如 前院·门厅、后院·井台、西跨院·正房、大厨房·后门、内书房、后罩房\n      - 出了府就写街面上的地名，例如 城东·皮货行、城东·霍家铺面\n  黎北.钱财:\n    type: number\n    range: 0~100000\n    value: 身上现钱，单位文。只记钱，不记在随身物品里\n    check:\n      - 买货、付账、打赏就减；领月钱、卖皮子、得赏就加\n      - 物价与工钱按「月钱与用度」条目里写的算，不要自己另外编数\n      - 钱不够时就如实写下来，并且让黎北为钱发愁\n  黎北.精液:\n    type: number\n    range: 0~9999\n    value: 体内蓄积的量，单位毫升。不设上限，不配状态词\n    check:\n      - 先在 <Analysis> 里把这一轮的加减算清楚，再填最终数，不要凭感觉给一个值\n      - 加：按本轮的时间推进算。把这一轮改写为「从 X 点到 Y 点，共 N 小时，N×6=加值」，N 只取整小时，不足一小时的部分舍去\n      - 例：世界.时间从 09:00 改到 12:00，共 3 小时，3×6=18\n      - 例：从 09:00 改到 09:40，不足 1 小时，N=0，不加\n      - 跨天要先算天数：从 三月初十 09:00 到 三月十一 09:00，共 24 小时，24×6=144\n      - 同一轮里时间没有推进，就不加\n      - 减：按「射精与遗精」条目里写的规则减，射精、醒着遗精、梦遗各按各的档位\n      - 加和减都在同一轮里算出最终值再提交，不要分两次写\n      - 最终值不许是负数，不够减就落到 0\n  黎北.精液算式:\n    type: string\n    value: 本轮精液的加减，写成一行算式，给状态栏显示\n    check:\n      - 和 黎北.精液 在同一个 JSONPatch 里提交，先把这个数算完，再照它写算式\n      - 照这个写法：上轮 旧值 ＋加值（几小时×6）－减项 ＝ 新值\n      - 例：上轮 40 ＋18（3 小时×6）－15（射精）＝ 43\n      - 加值按世界.时间推进的整小时算，一小时 6 毫升；不足一小时的部分不写加值\n      - 减项照「射精与遗精」里的档位，写明是射精、清醒遗精还是梦遗；没泄就不写减项\n      - 时间没推进也没泄，就写：上轮 40 ＝ 40（未动）\n      - 末尾的数必须和 黎北.精液 一模一样\n      - 只写算式，不写身子怎样、心里怎样\n  黎北.穿着.${内衬|上装|下装|鞋履}:\n    type: |-\n      {\n        衣物: string; // 这件叫什么、什么样：布料、颜色、样式；脱掉写\"无\"\n        遮露: string; // 这一层管的身体部位现在遮着还是露着\n      }\n    check:\n      - 内衬与上装管手臂、肩膀、胸部、腰腹；下装管腰以下那一处；鞋履管脚\n      - 每个部位都写清现在是遮着还是露着：遮着就写被哪件衣物盖住；露着就写怎么露的、露到什么程度\n      - 脱掉一层，这层的衣物写\"无\"，它管的部位全部改成裸露；穿回去再写回原样\n      - 置办了新衣裳，就把这一层的衣物名称和样子换掉\n      - 下装只管衣物与遮露；那一处本身的样子写在 黎北.阳具 里，不要在这里重复\n  黎北.阳具:\n    type: string\n    value: 腰以下那一处此刻的样子\n    check:\n      - 写：挺着还是软着、硬到什么程度、朝哪边贴、有没有翘起来、布料有没有被顶起或洇湿\n      - 本来的大小和颜色按「角色卡」条目里写的算，不要自己另编\n      - 只有在它真的起了变化时才改写这一项；没变化就不动\n      - 别写成一句景话，写它此刻的实状\n  黎北.随身物品:\n    type: |-\n      {\n        [物品名: string]: string; // 这东西是什么、现在什么样子、还剩多少\n      }\n    check:\n      - 只记此刻带在身上的东西，不记钱（钱走黎北.钱财）\n      - 放在房里、寄放在别处的不写在这里，等重新拿到手上再加回来\n      - 新得的东西只要带在身上就 add 一项；卖掉、弄丢、放下不带的就 remove 掉\n      - 用了就改这一项的文字说明还剩多少，例如\"箭，用剩三支\"\n      - 皮囊、包裹里装着什么要如实记在那一项里\n  黎北.想法:\n    type: string\n    value: 黎北此刻心里的转悠，第一人称\n    check:\n      - 每轮用一段第一人称的话写，把心里的纠结、犹豫、拿不定都写出来\n      - 想开口又咽回去、想应下又怕、想走开又舍不得，这种来回要写清楚，不要写成一句干净利落的短句\n      - 精液不到 100 时，念头落在眼前的事上：钱、活计、住处、跟前这个人\n      - 精液达到 100 时，念头明显往身体上跑，坐立不安，一点小事就点着\n      - 想法不得包含正文里没有发生的事，也不得替玩家决定还没做的选择\n      - 这只是心里的话，不写进正文\n","outputFormat":"---\n<update_variable_rules>\nrule:\n  - 在本轮回复的最末尾，一次性输出变量分析和实际更新命令\n  - 更新命令必须严格遵循 JSON Patch (RFC 6902) 标准，但只能使用三种操作：`replace`（替换已存在的路径）、`add`（仅用于向对象新增键）、`remove`（删除路径）\n  - 输出必须是一个合法的 JSON 数组，数组元素为操作对象\n  - 路径相对于 stat_data，用斜杠分隔，例如 /世界/时间、/黎北/钱财\n  - 没有变化时输出空数组\nformat: |-\n  <UpdateVariable>\n  <Analysis>$(用中文，不超过 200 字)\n  - 本轮过了多久：从……到……，共几个整小时\n  - 这一轮是否属于特殊情况（时间跨度异常大）：是／否\n  - 逐个说明变化的变量，依据它对应的 `check` 只在当前回复里发生的事，不参考以前的剧情\n  - 数值变量写出算式：旧值 (X) 加 变化量 (Y) 等于 新值 (Z)\n  - 精液另在 黎北.精液算式 里写成一行加减\n  </Analysis>\n  <JSONPatch>\n  [\n    { \"op\": \"replace\", \"path\": \"/世界/时间\", \"value\": \"10:00\" },\n    { \"op\": \"replace\", \"path\": \"/黎北/精液\", \"value\": 46 },\n    { \"op\": \"replace\", \"path\": \"/黎北/精液算式\", \"value\": \"上轮 40 ＋6（1 小时×6）＝ 46\" },\n    { \"op\": \"add\", \"path\": \"/黎北/随身物品/油纸包\", \"value\": \"油纸包着的两只肉包，还烫手\" },\n    { \"op\": \"remove\", \"path\": \"/黎北/随身物品/包袱\" }\n  ]\n  </JSONPatch>\n  </UpdateVariable>\n</update_variable_rules>\n","numericRules":"射精与遗精:\n  蓄积与满溢判定:\n    - 阈值设定: 精液数值达到 100 即判定为【必定满溢】状态。\n    - 满溢强制逻辑: 一旦数值 ≥ 100，阳气与元精彻底充盈外溢，无法通过意志强行压制，该状态下在当前轮次或下一判定周期内【必定触发满溢泄出】（涵盖主动射精、清醒遗精或梦遗）。\n    - 状态影响: 满溢状态下身体燥热紧绷，心绪难宁，稍微受到触碰、颠簸、温热刺激或言语撩拨即刻走火渗漏。\n  日常射精:\n    触发条件: 满溢状态下主动宣泄，或与人苟合云雨。\n    数值结算: 单次消耗 10 至 20 毫升。\n    状态反馈: 泄后阳具由硬转软，腰胯酸沉，体魄燥热渐退；需避人清理痕迹与气味。\n  清醒遗精:\n    触发条件: 精液 ≥ 100 处于满溢状态且未及行事，日常走动、搬抬劳作或稍受荤话热气烘烤时被动触发。\n    数值结算: 单次溢出 10 至 20 毫升。\n    状态反馈: 无预兆渗出，裤裆洇湿黏热；动作停滞遮掩，神情发僵。\n  梦遗:\n    触发条件: 精液在睡眠推进中达到或保持 ≥ 100 满溢状态，醒来必定结算一次梦遗。\n    数值结算: 单次溢出 20 至 40 毫升。\n    状态反馈: 醒时亵裤与床褥湿凉黏腻，须趁无人察觉时擦拭翻转遮掩。\n  规则约束:\n    - 只要精液数值结算后仍 ≥ 100，判定持续生效，下一轮推进继续强制执行满溢逻辑，直至数值降至 100 以下。","snapshotTemplate":"---\n<status_current_variable>\n{{format_message_variable::stat_data}}\n</status_current_variable>"}};
 const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box}\n#libei-status-popup-v1{--lb-paper:#faf6ed;--lb-card:#fffdf8;--lb-ink:#392f26;--lb-muted:#796b5b;--lb-line:#deceb5;--lb-accent:#805c36;color-scheme:light!important;color:var(--lb-ink)!important;background:var(--lb-paper)!important;width:min(850px,calc(100vw - 24px));max-width:calc(100vw - 24px);height:min(830px,90vh);height:min(830px,90dvh);max-height:90dvh;margin:auto;padding:0;border:1px solid var(--lb-line);border-radius:18px;box-shadow:0 22px 90px #201b1744;font:14px/1.65 system-ui,-apple-system,\"PingFang SC\",\"Microsoft YaHei\",sans-serif;text-align:left;overflow:hidden;z-index:12000}\n#libei-status-popup-v1[open]{display:flex;flex-direction:column}\n#libei-status-popup-v1 [hidden]{display:none!important}\n#libei-status-popup-v1::backdrop{background:#201b1777;backdrop-filter:blur(3px)}\n#libei-status-popup-v1 header{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:20px 24px 15px;border-bottom:1px solid var(--lb-line);background:linear-gradient(115deg,#f1e6d1,#fcf8ee);flex-shrink:0}\n#libei-status-popup-v1 h2{font:600 22px/1.4 \"Songti SC\",\"SimSun\",serif;letter-spacing:.07em;margin:0;color:#4f3924!important}\n#libei-status-popup-v1 .lb-kicker{font-size:12px;color:var(--lb-muted)!important;letter-spacing:.05em;margin:3px 0 0}\n#libei-status-popup-v1 nav{display:flex;gap:7px;padding:12px 24px;border-bottom:1px solid var(--lb-line);flex-shrink:0}\n#libei-status-popup-v1 nav button{flex:1;white-space:nowrap;background:transparent!important;border-color:transparent!important;color:var(--lb-muted)!important}\n#libei-status-popup-v1 nav button[aria-selected=true]{background:#e9dcc4!important;color:#51391e!important;border-color:#d9c4a3!important;font-weight:650}\n#libei-status-popup-v1 .lb-page{padding:18px 24px 22px;overflow:auto;overscroll-behavior:contain;min-height:0;flex:1}\n#libei-status-popup-v1 button{font:inherit;font-size:13px;border:1px solid #d8c6a7;border-radius:8px;padding:7px 12px;margin:0;background:#fffdf8!important;color:#5c432b!important;box-shadow:none!important;text-shadow:none;cursor:pointer;line-height:1.6}\n#libei-status-popup-v1 button:hover{background:#f1e5d0!important}\n#libei-status-popup-v1 button:disabled{opacity:.45;cursor:not-allowed}\n#libei-status-popup-v1 button.lb-primary{background:#805c36!important;border-color:#805c36;color:#fffdf8!important}\n#libei-status-popup-v1 button.lb-primary:hover{background:#684929!important}\n#libei-status-popup-v1 button.lb-close{white-space:nowrap;border:0;background:transparent!important;padding:5px}\n#libei-status-popup-v1 button:focus-visible,#libei-status-popup-v1 select:focus-visible,#libei-status-popup-v1 input:focus-visible,#libei-status-popup-v1 textarea:focus-visible{outline:2px solid #8d6741;outline-offset:3px}\n#libei-status-popup-v1 label{display:block;margin:12px 0 6px;color:#66523c!important;font-size:13px}\n#libei-status-popup-v1 input:not([type=checkbox]),#libei-status-popup-v1 select,#libei-status-popup-v1 textarea{display:block;min-width:0;width:100%;padding:9px 11px;margin:5px 0 0;background:var(--lb-card)!important;color:var(--lb-ink)!important;border:1px solid var(--lb-line);border-radius:8px;box-shadow:none!important;font:inherit}\n#libei-status-popup-v1 textarea{font:13px/1.7 ui-monospace,\"Cascadia Code\",\"SFMono-Regular\",Consolas,monospace;resize:vertical;min-height:220px;tab-size:2;white-space:pre;overflow:auto}\n#libei-status-popup-v1 input[type=checkbox]{appearance:auto!important;width:17px;height:17px;margin:0 0 0 10px;vertical-align:middle;accent-color:#805c36}\n#libei-status-popup-v1 input[type=number]{max-width:220px}\n#libei-status-popup-v1 .lb-note{font-size:12px;line-height:1.8;color:var(--lb-muted)!important;margin:8px 0 14px;overflow-wrap:anywhere}\n#libei-status-popup-v1 .lb-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}\n#libei-status-popup-v1 .lb-actions select{flex:1;width:auto;margin:0;min-width:160px}\n#libei-status-popup-v1 .lb-dl{margin:16px 0 20px;display:grid;grid-template-columns:86px minmax(0,1fr);border:1px solid var(--lb-line);border-radius:11px;overflow:hidden;background:var(--lb-card)}\n#libei-status-popup-v1 .lb-dl>dt{padding:13px 12px;font-weight:600;color:#725336!important;background:#f4ecdd;overflow-wrap:anywhere;border-bottom:1px solid #e8ddca;margin:0}\n#libei-status-popup-v1 .lb-dl>dd{padding:13px 14px;margin:0;white-space:pre-wrap;overflow-wrap:anywhere;min-width:0;border-bottom:1px solid #e8ddca;color:var(--lb-ink)!important}\n#libei-status-popup-v1 .lb-dl>dt:nth-last-child(2),#libei-status-popup-v1 .lb-dl>dd:last-child{border-bottom:0}\n#libei-status-popup-v1 .lb-nested{margin:0;border:0;border-radius:0;background:transparent;grid-template-columns:78px minmax(0,1fr)}\n#libei-status-popup-v1 .lb-nested>dt{background:transparent;padding:7px 8px 7px 0;font-weight:500}\n#libei-status-popup-v1 .lb-nested>dd{padding:7px 0 7px 8px}\n#libei-status-popup-v1 footer{border-top:1px solid var(--lb-line);padding:12px 24px;background:#f3ebdc;flex-shrink:0}\n#libei-status-popup-v1 footer .lb-actions{margin:9px 0 0}\n#libei-status-popup-v1 .lb-status{font-size:12px;color:#6a543e!important;overflow-wrap:anywhere}\n#libei-status-popup-v1 .lb-status[data-error=\"1\"]{color:#a03928!important}\n#libei-status-popup-v1 .lb-code{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 ui-monospace,Consolas,monospace;background:#f0e9dd!important;color:#594b3b!important;padding:12px;border-radius:8px;max-height:260px;overflow:auto}\n#libei-status-popup-v1 details{margin:18px 0 6px;padding-top:8px;border-top:1px dashed var(--lb-line)}\n#libei-status-popup-v1 summary{font-size:13px;cursor:pointer;color:#805c36!important;list-style:revert}\n#libei-status-popup-v1-ball{position:fixed;right:22px;bottom:105px;width:54px;height:54px;border-radius:50%;border:1px solid #cbb18a;color:#fcf7ed!important;background:linear-gradient(145deg,#96744d,#634527)!important;box-shadow:0 5px 20px #38271340;font:600 24px/1 \"Songti SC\",\"SimSun\",serif;z-index:11800;cursor:pointer;touch-action:none;user-select:none;padding:0;text-shadow:none}\n#libei-status-popup-v1-ball:focus-visible{outline:3px solid #b18b56;outline-offset:3px}\n@media(max-width:560px){#libei-status-popup-v1{width:calc(100vw - 12px);max-width:calc(100vw - 12px);height:92vh;height:92dvh;max-height:92dvh;border-radius:12px}#libei-status-popup-v1 header{padding:15px 15px 12px}#libei-status-popup-v1 h2{font-size:19px}#libei-status-popup-v1 nav{padding:9px 12px;gap:4px}#libei-status-popup-v1 .lb-page{padding:13px 14px 18px}#libei-status-popup-v1 footer{padding:10px 14px}#libei-status-popup-v1 .lb-dl{grid-template-columns:64px minmax(0,1fr)}#libei-status-popup-v1 .lb-dl>dt{padding:10px 8px}#libei-status-popup-v1 .lb-dl>dd{padding:10px}#libei-status-popup-v1 .lb-nested{grid-template-columns:60px minmax(0,1fr)}#libei-status-popup-v1 .lb-nested>dt{padding:6px 5px 6px 0}#libei-status-popup-v1 .lb-nested>dd{padding:6px 0 6px 5px}#libei-status-popup-v1 textarea{font-size:12px}}\n";
 
 
@@ -562,7 +584,7 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
     settingsRaw = host.localStorage.getItem(KEY);
     const source = settingsRaw === null ? null : JSON.parse(settingsRaw);
     if (source && source.version !== 1) throw Error('保存的数据版本不兼容。');
-    stored = source ? { version: 1, rules: C.validateRules(C.clone(source.rules)), config: checkConfig(source.config), rememberedKey: typeof source.rememberedKey === 'string' ? source.rememberedKey : '' } : { version: 1, rules: C.clone(DEFAULTS.rules), config: C.clone(DEFAULT_CONFIG), rememberedKey: '' };
+    stored = source ? { version: 1, rules: C.migrateRules(source.rules), config: checkConfig(source.config), rememberedKey: typeof source.rememberedKey === 'string' ? source.rememberedKey : '' } : { version: 1, rules: C.clone(DEFAULTS.rules), config: C.clone(DEFAULT_CONFIG), rememberedKey: '' };
     key = stored.rememberedKey;
   } catch (e) {
     initialError = '无法读取已保存设置，已禁止写入以免覆盖：' + e.message;
@@ -644,6 +666,7 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
   note('规则与初值保存在本浏览器的脚本专属 localStorage 中。保存规则不会覆盖当前进度；初值只用于尚未初始化的新聊天。支持 YAML / JSON，禁止代码、锚点和重复字段。', rulePage);
   const initLabel = node('label', '新聊天初值方案'); rulePage.append(initLabel);
   const initialChoice = node('select'); initLabel.append(initialChoice);
+  note('只用手动选定的初值，不按角色卡或开场文字匹配；未选择时，新聊天不会初始化。', rulePage);
   const ruleLabel = node('label', '编辑内容'); rulePage.append(ruleLabel);
   const ruleSelect = node('select'); ruleLabel.append(ruleSelect);
   const ruleHelp = note('', rulePage);
@@ -666,7 +689,7 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
     if (file.size > 1500000) throw Error('配置文件过大。');
     const data = JSON.parse(await file.text()); C.inspect(data);
     if (data.format !== 'libei-independent-config-v1') throw Error('不是本面板的配置文件。');
-    const rules = C.validateRules(data.rules), config = checkConfig(data.config);
+    const rules = C.migrateRules(data.rules), config = checkConfig(data.config);
     if (busy) throw Error('请求进行中，请稍后导入。');
     if (!host.confirm('导入 ' + rules.initials.length + ' 个初值方案及规则，覆盖脚本保存的规则/API地址与模型；不会覆盖聊天状态，也不会导入密钥。继续？')) return;
     persist({ version: 1, rules, config, rememberedKey: '' }); draftRules = C.clone(rules); rulesDirty = false; apiDirty = false;
@@ -773,7 +796,8 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
       floorSelect.value = viewId === null ? 'latest' : String(viewId);
       const snapshot = timeline(), id = viewId ?? snapshot.view.current?.id ?? -1, data = id >= 0 ? readFloor(id) : {}, state = validState(data);
       stateBody.replaceChildren();
-      if (!state) note('所选楼层尚未结算。点击手动同步会按顺序补算；已有快照只用于匹配的当前正文分支。', stateBody);
+      if (!state && !stored.rules.initialChoice) note('先在“变量规则”中手动选择一套初值方案。选择前不会为聊天创建初始状态。', stateBody);
+      else if (!state) note('所选楼层尚未结算。点击手动同步会按顺序补算；已有快照只用于匹配的当前正文分支。', stateBody);
       else {
         const meta = data.stat_data[META];
         note((writerReady ? '可写' : '只读') + ' · 当前链截至第 ' + id + ' 楼 · 待结算 ' + snapshot.view.pending.length + ' 楼 · 回复分支 ' + (s.chat[id]?.swipe_id ?? 0) + (meta?.updatedAt ? ' · ' + new Date(meta.updatedAt).toLocaleString() : ' · 初始状态'), stateBody);
@@ -790,7 +814,7 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
     ruleHelp.textContent = activeRule.startsWith('initial:') ? '初值编辑：保留原卡必需字段，可添加自定义变量；新增变量会在状态页自动展示。不要把当前聊天的状态当作所有新聊天初值。' : activeRule === 'snapshotTemplate' ? '正文状态模板：{state_json} 会被当前状态替换。不执行 EJS 或自定义代码。' : '原世界书内容已迁入。文本作为独立 API 的规则，不作为 JavaScript 执行。';
   }
   function fillRuleOptions() {
-    ruleSelect.replaceChildren(); initialChoice.replaceChildren(node('option', '按当前开场自动匹配（未匹配则用通用初值）', { value: 'auto' }));
+    ruleSelect.replaceChildren(); initialChoice.replaceChildren(node('option', '请选择初值方案', { value: '' }));
     draftRules.initials.forEach((item, i) => { ruleSelect.append(node('option', '变量初值 · ' + item.label, { value: 'initial:' + i })); initialChoice.append(node('option', item.label, { value: item.id })); });
     for (const [value, label] of [['updateRules', '变量更新规则'], ['outputFormat', '变量输出格式'], ['numericRules', '数值与事件规则'], ['snapshotTemplate', '发给正文模型的当前状态模板']]) ruleSelect.append(node('option', label, { value }));
     if (![...ruleSelect.options].some(o => o.value === activeRule)) activeRule = 'initial:0';
@@ -923,6 +947,11 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
     const scope = identity();
     if (scope.chat.at(-1)?.is_user || scope.chat.at(-1)?.is_system) throw Error('请等待末尾 AI 正文完成。');
     let snapshot = timeline(), pending = snapshot.view.pending;
+    if (!snapshot.view.current && !stored.rules.initialChoice) {
+      const message = '请先在“变量规则”中手动选择一套初值方案；未选择前不会初始化新聊天。';
+      if (automatic) { status(message, true); return; }
+      throw Error(message);
+    }
     if (!snapshot.view.current) throw Error('尚无开场初值。');
     if (automatic && !pending.length) return;
     if (automatic && pending.length > 3) { status('有 ' + pending.length + ' 个未结算楼层，请点击手动同步确认补算，避免意外连续调用 API。', true); return; }
@@ -976,11 +1005,12 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
   async function manualUpdate() { await runUpdates(false); }
   async function resetLatest() {
     if (busy || generating || rulesDirty) throw Error('请先保存规则并等待所有生成结束。');
+    if (!stored.rules.initialChoice) throw Error('请先在“变量规则”中手动选择一套初值方案。');
     const scope = identity(), id = latestAI(scope.chat), t = capture(id), snapshot = timeline();
     if (snapshot.view.pending.length) throw Error('请先补算未结算楼层，再重置末楼。');
     if (id !== scope.chat.length - 1) throw Error('只能重置当前末尾 AI 楼层。');
     const old = snapshot.view.current, first = scope.chat.find(m => !m.is_user && !m.is_system);
-    const initial = C.chooseInitial(stored.rules, first?.mes || '');
+    const initial = C.chooseInitial(stored.rules);
     if (!host.confirm('用「' + initial.label + '」覆盖当前第 ' + id + ' 楼独立状态？只改 localStorage，不改正文；保留单份恢复备份。')) return;
     if (!guard(t)) throw Error('目标已变化。');
     const next = T.append(snapshot, scope.chat, id, initial.state, [], { backup: C.clone(old.state), action: 'reset' });
@@ -1104,7 +1134,7 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
     reset: resetLatest, restore: restoreReset, clear: clearChatState, cleanBranches,
     exportTimeline, importTimeline,
     exportState() { const s = identity(); download('黎北-状态快照.json', { format: 'libei-state-snapshot-v1', chatId: s.chatId, messageId: selectedFloor(), data: readFloor(selectedFloor()) }); },
-    validateRules(value) { const checked = C.validateRules(C.clone(value)); C.snapshotText(checked.snapshotTemplate, C.parseYaml(checked.initials[0].text)); return checked; },
+    validateRules(value) { const checked = C.migrateRules(value); C.snapshotText(checked.snapshotTemplate, C.parseYaml(checked.initials[0].text)); return checked; },
     saveRules(value) { draftRules = C.clone(value); saveRules(); fillRuleOptions(); renderState(); },
     saveOptions(value) {
       if (busy || generating) throw Error('请等待生成结束。');

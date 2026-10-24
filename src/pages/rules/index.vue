@@ -9,7 +9,7 @@ const draft = ref<any>(clone(view.value.rules));
 const dirty = ref(false), active = ref('initial:0'), fileInput=ref<HTMLInputElement | null>(null);
 const optionsDraft = ref(clone(view.value.config));
 watch(() => view.value.rules, value => { if (!dirty.value) draft.value=clone(value); });
-const initialOptions = computed(() => [{value:'auto',label:'按当前开场自动匹配'},...(draft.value?.initials||[]).map((item:any)=>({value:item.id,label:item.label}))]);
+const initialOptions = computed(() => [{value:'',label:'请选择初值方案'},...(draft.value?.initials||[]).map((item:any)=>({value:item.id,label:item.label}))]);
 const editOptions = computed(() => [...(draft.value?.initials||[]).map((item:any,i:number)=>({value:'initial:'+i,label:'变量初值 · '+item.label})),...Object.entries({updateRules:'变量更新规则',outputFormat:'变量输出格式',numericRules:'数值与事件规则',snapshotTemplate:'发给正文模型的当前状态模板'}).map(([value,label])=>({value,label}))]);
 const text = computed({get:()=>{if(!draft.value)return '';return active.value.startsWith('initial:')?draft.value.initials?.[Number(active.value.slice(8))]?.text||'':draft.value[active.value]||''},set:(value:string)=>{dirty.value=true;if(active.value.startsWith('initial:'))draft.value.initials[Number(active.value.slice(8))].text=value;else draft.value[active.value]=value}});
 async function save(){try{await runEngine('saveRules',clone(draft.value));dirty.value=false}catch(_){}}
@@ -23,6 +23,8 @@ async function importRules(event:Event){const input=event.target as HTMLInputEle
   <p v-if="operationError" class="libei-error" role="alert">{{ operationError }}</p>
   <template v-if="draft">
    <label class="libei-field"><span>新聊天初值方案</span><BbsSelect v-model="draft.initialChoice" :options="initialOptions" aria-label="新聊天初值方案" @update:model-value="dirty=true" /></label>
+   <p class="libei-hint">只使用这里选定的方案，不会根据角色卡或开场文字自动匹配。</p>
+   <p v-if="!draft.initialChoice" class="libei-hint" role="status">未选择前，新聊天不会创建初始状态。</p>
    <label class="libei-field"><span>编辑内容</span><BbsSelect v-model="active" :options="editOptions" aria-label="编辑规则" /></label>
    <textarea v-model="text" class="bbs-input libei-editor" spellcheck="false" aria-label="变量规则编辑器" />
    <div class="libei-actions"><button class="bbs-btn bbs-btn-primary" :disabled="view.busy" @click="save"><Icon name="check" />保存规则</button><button class="bbs-btn" @click="revert">放弃修改</button><button class="bbs-btn" @click="act('exportRules')"><Icon name="download" />导出规则</button><button class="bbs-btn" @click="fileInput?.click()">导入规则</button></div>
