@@ -75,9 +75,9 @@ export function mountEntries(): () => void {
     item.id = MENU_ID;
     item.className = 'list-group-item';
     item.href = '#';
-    item.title = '黎北';
+    item.title = '男主状态';
     const label = doc.createElement('span');
-    label.textContent = '黎北';
+    label.textContent = '男主状态';
     item.append(bookIcon(), label);
     wrap.appendChild(item);
     activate(wrap, () => { openBook(); menu.style.display = 'none'; }, true);
@@ -95,10 +95,10 @@ export function mountEntries(): () => void {
     toggle.className = 'drawer-toggle';
     toggle.setAttribute('role', 'button');
     toggle.tabIndex = 0;
-    toggle.setAttribute('aria-label', '打开黎北');
+    toggle.setAttribute('aria-label', '打开男主状态');
     const icon = doc.createElement('div');
     icon.className = 'drawer-icon fa-solid fa-book-bookmark fa-fw closedIcon';
-    icon.title = '黎北';
+    icon.title = '男主状态';
     toggle.appendChild(icon);
     btn.appendChild(toggle);
     activate(toggle, () => openBook(), true);
@@ -135,8 +135,8 @@ export function mountEntries(): () => void {
     btn.id = QR_ID;
     btn.className = 'qr--button menu_button interactable';
     btn.tabIndex = 0;
-    btn.title = '打开黎北';
-    btn.textContent = '黎北';
+    btn.title = '打开男主状态';
+    btn.textContent = '男主状态';
     activate(btn, () => openBook(), true);
     holder.appendChild(btn);
   }
@@ -151,13 +151,13 @@ export function mountEntries(): () => void {
       root.className = 'extension_container';
       const details = doc.createElement('details');
       const summary = doc.createElement('summary');
-      summary.textContent = '黎北 · 独立状态面板';
+      summary.textContent = '男主状态 · 独立状态面板';
       const note = doc.createElement('p');
       note.textContent = '独立状态引擎；主题、入口和主副 API 渠道均在面板设置中管理。';
       const open = doc.createElement('button');
       open.type = 'button';
       open.className = 'menu_button';
-      open.textContent = '打开黎北设置';
+      open.textContent = '打开男主状态设置';
       activate(open, () => openBook('settings'));
       details.append(summary, note, open);
       for (const [key, label] of [
@@ -197,7 +197,7 @@ export function mountEntries(): () => void {
         // 酒馆可能复用 .mes 节点；选楼标记跟随新的 mesid，避免点进旧楼。
         if (existing.dataset.libeiFloor !== String(id)) {
           existing.dataset.libeiFloor = String(id);
-          existing.replaceChildren(bookIcon(), doc.createTextNode(`#${id} · 查看黎北状态`));
+          existing.replaceChildren(bookIcon(), doc.createTextNode(`#${id} · 查看男主状态状态`));
         }
         return;
       }
@@ -205,14 +205,14 @@ export function mountEntries(): () => void {
       btn.type = 'button';
       btn.className = FLOOR_CLASS;
       btn.dataset.libeiFloor = String(id);
-      btn.append(bookIcon(), doc.createTextNode(`#${id} · 查看黎北状态`));
+      btn.append(bookIcon(), doc.createTextNode(`#${id} · 查看男主状态状态`));
       const text = mes.querySelector('.mes_text');
       if (text) text.insertAdjacentElement('afterend', btn);
       else mes.appendChild(btn);
     });
   }
 
-  // 只接黎北独立引擎的选楼接口，不调用参考摘要/番外/写回逻辑。
+  // 只接男主状态独立引擎的选楼接口，不调用参考摘要/番外/写回逻辑。
   bind(doc, 'click', e => {
     const target = e.target instanceof Element ? e.target.closest<HTMLButtonElement>(`.${FLOOR_CLASS}`) : null;
     if (!target) return;
@@ -225,7 +225,7 @@ export function mountEntries(): () => void {
       owner?.engineApi?.setFloor(id);
       openBook('state');
     } catch (error) {
-      console.warn('[黎北] 楼层状态入口暂不可用', error);
+      console.warn('[男主状态] 楼层状态入口暂不可用', error);
     }
   });
 

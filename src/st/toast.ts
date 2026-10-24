@@ -4,7 +4,7 @@ interface Toastr { info: (msg: string, title?: string) => void; success: (msg: s
 export function toast(message: string, type: ToastType = 'info'): void {
   try {
     const t = (window as unknown as { toastr?: Toastr }).toastr;
-    if (t && typeof t[type] === 'function') { t[type](message, '黎北'); return; }
+    if (t && typeof t[type] === 'function') { t[type](message, '男主状态'); return; }
   } catch { /* 降级为日志 */ }
-  console.log('[黎北]', message);
+  console.log('[男主状态]', message);
 }

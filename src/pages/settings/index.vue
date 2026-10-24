@@ -10,6 +10,15 @@ import { getContext } from '@/st/context';
 import { toast } from '@/st/toast';
 import { ui, THEMES, ORB_SHAPES } from '@/state/ui';
 import { computed, onBeforeUnmount, ref } from 'vue';
+import { engineView as view, operationError, act } from '@/state/engine';
+
+const archiveInput = ref<HTMLInputElement | null>(null);
+function importArchive(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (file) act('importTimeline', file);
+}
 
 const navOptions = [{ value: 'auto', label: '自动' }, { value: 'top', label: '顶部' }, { value: 'bottom', label: '底部' }] as const;
 const REASONING_EFFORT_OPTIONS = [
@@ -200,14 +209,31 @@ onBeforeUnmount(() => { editorEpoch++; clearTimeout(blurTimer); });
 
 <template>
   <section class="bbs-page">
-    <div class="bbs-page-head"><h2>设置</h2><span class="bbs-ver">黎北 v2</span></div>
+    <div class="bbs-page-head"><h2>设置</h2><span class="bbs-ver">男主状态 v2</span></div>
     <hr class="bbs-rule" />
     <div class="bbs-master" :class="{ 'is-off': !apiSettings.enabled }">
       <span class="bbs-master-spine" aria-hidden="true"></span>
-      <div class="bbs-master-text"><span class="bbs-master-title">黎北 · 状态更新</span></div>
+      <div class="bbs-master-text"><span class="bbs-master-title">男主状态 · 状态更新</span></div>
       <button type="button" role="switch" class="bbs-toggle" :class="{ 'is-on': apiSettings.enabled }" :aria-checked="apiSettings.enabled" @click="apiSettings.enabled = !apiSettings.enabled"><span class="bbs-toggle-knob"></span></button>
     </div>
     <div class="bbs-sections">
+      <Collapsible title="存档与存储管理" :open="false">
+        <p class="bbs-field-hint">状态链仍保存在此浏览器，不随角色卡或聊天自动同步。换设备前请导出完整存档。主 API 请求取消仅丢弃结果，不强停正在运行的酒馆主模型。</p>
+        <p v-if="operationError || view.error" class="libei-storage-error" role="alert">{{ operationError || view.error }}</p>
+        <div class="libei-storage-actions">
+          <button class="bbs-btn" type="button" :disabled="!view.state" @click="act('exportState')"><Icon name="download" />导出当前状态</button>
+          <button class="bbs-btn" type="button" @click="act('exportTimeline')">导出完整存档</button>
+          <button class="bbs-btn" type="button" @click="archiveInput?.click()">导入完整存档</button>
+          <button class="bbs-btn" type="button" @click="act('acquireLease')">启用本页写入</button>
+          <button class="bbs-btn" type="button" @click="act('cleanBranches')">清理非活动分支</button>
+          <button class="bbs-btn" type="button" @click="act('recoverGeneration')">恢复生成标记</button>
+          <button class="bbs-btn" type="button" :disabled="!view.rules?.initialChoice || !view.state" @click="act('reset')">用初值重置末楼</button>
+          <button class="bbs-btn" type="button" @click="act('restore')">恢复重置备份</button>
+          <button class="bbs-btn bbs-btn-danger" type="button" @click="act('clear')">清除本聊天状态</button>
+        </div>
+        <input ref="archiveInput" type="file" accept=".json,application/json" hidden aria-label="导入完整状态存档" @change="importArchive" />
+        <p class="bbs-field-hint libei-storage-status" role="status">{{ view.status }}</p>
+      </Collapsible>
       <Collapsible title="基本设置" :open="false">
         <div class="bbs-field">
           <div class="bbs-field-head"><span class="bbs-field-label">主题</span></div>
@@ -235,7 +261,7 @@ onBeforeUnmount(() => { editorEpoch++; clearTimeout(blurTimer); });
       <Collapsible title="副 API" :open="false">
         <div class="bbs-field bbs-assign"><div class="bbs-assign-row"><span class="bbs-field-label">状态更新使用</span><BbsSelect :model-value="apiSettings.assignments.summary" :options="channelOptions" class="bbs-assign-select" aria-label="状态更新使用的渠道" @update:model-value="chooseAssignment" /></div></div>
         <p class="bbs-field-hint">跟随主 API 使用酒馆主界面当前连接，不是独立 primary；不会在失败时自动切换渠道。主 API 无法保证立即取消，过期结果会由状态更新引擎丢弃；generateRaw 只返回文本，无法观测 finish_reason 或保证检测截断。副渠道可拒绝 finish_reason=length 的截断响应。</p>
-        <p class="bbs-field-hint">渠道仅供黎北使用，不读取或修改柏宝共享渠道。密钥在点「完成」后以明文存入当前酒馆账户设置，可能随账户跨设备同步；仅在可信服务器保存。</p>
+        <p class="bbs-field-hint">渠道仅供男主状态使用，不读取或修改柏宝共享渠道。密钥在点「完成」后以明文存入当前酒馆账户设置，可能随账户跨设备同步；仅在可信服务器保存。</p>
         <div v-if="migrationPending" class="bbs-field"><button class="bbs-btn bbs-btn-sm" type="button" @click="importLegacy">显式导入旧版 API 草稿</button><button class="bbs-btn bbs-btn-sm" type="button" @click="useMainWithoutImport">不导入，明确跟随主 API</button><p class="bbs-field-hint">不会自动上传旧版本地密钥；导入后仍需点完成保存，关闭草稿即放弃。</p></div>
         <hr class="bbs-rule" />
         <div class="bbs-channel-bar"><span class="bbs-field-label">渠道</span><button class="bbs-btn bbs-btn-primary bbs-btn-sm" type="button" @click="addChannel"><Icon name="plus" />添加渠道</button></div>
@@ -243,12 +269,12 @@ onBeforeUnmount(() => { editorEpoch++; clearTimeout(blurTimer); });
         <p v-else class="bbs-field-hint">还没有渠道。点「添加渠道」配置状态更新使用的 API。</p>
       </Collapsible>
       <Collapsible title="排除角色" :open="false">
-        <p class="bbs-field-hint">名单中的单角色聊天停用黎北辅助请求；按名字匹配，同名卡一并排除。群聊不按单名排除。</p>
+        <p class="bbs-field-hint">名单中的单角色聊天停用男主状态辅助请求；按名字匹配，同名卡一并排除。群聊不按单名排除。</p>
         <button class="bbs-btn bbs-btn-sm" type="button" @click="excludeCharSearch='';excludeCharOpen=true"><Icon name="edit" />编辑名单</button>
         <ul class="bbs-exclude-chips"><li v-for="name in apiSettings.exclusions.excludedChars" :key="name" class="bbs-exclude-chip"><span>{{name}}</span><button class="bbs-exclude-chip-x" type="button" title="移出名单" @click="toggleCharExcluded(name)"><Icon name="close" /></button></li></ul>
       </Collapsible>
       <Collapsible title="排除世界书" :open="false">
-        <p class="bbs-field-hint">仅剔除黎北辅助请求中的世界书参考，不改变主对话世界书、原书文件或全局启停。跟随主 API 时也适用。勾选即时保存，关闭不回滚。</p>
+        <p class="bbs-field-hint">仅剔除男主状态辅助请求中的世界书参考，不改变主对话世界书、原书文件或全局启停。跟随主 API 时也适用。勾选即时保存，关闭不回滚。</p>
         <label class="bbs-switch-row"><span class="bbs-field-label">渲染世界书模板</span><input v-model="apiSettings.exclusions.renderWorldInfoTemplates" type="checkbox" class="bbs-checkbox" /></label>
         <p class="bbs-field-hint">默认关闭。开启会展开宏，并可能通过 ST-Prompt-Template 执行世界书 EJS 代码、读写变量；只对可信世界书开启，取消请求不能撤销已发生的模板副作用。</p>
         <hr class="bbs-rule" />
@@ -297,6 +323,10 @@ onBeforeUnmount(() => { editorEpoch++; clearTimeout(blurTimer); });
 .bbs-field-head { display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:10px; }
 .bbs-field-label { font-size:14px; font-weight:600; color:var(--bbs-ink); }
 .bbs-field-hint { margin:0 0 14px; font-size:12px; color:var(--bbs-ink-muted); line-height:1.6; }
+.libei-storage-actions { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+.libei-storage-actions .bbs-btn { min-height:40px; white-space:normal; text-align:left; }
+.libei-storage-error { color:var(--bbs-danger); font-size:12px; overflow-wrap:anywhere; }
+.libei-storage-status { margin-top:10px; overflow-wrap:anywhere; }
 .bbs-segmented { display:inline-flex; gap:4px; padding:4px; background:var(--bbs-surface-2); border-radius:var(--bbs-radius); }
 .bbs-segmented-wrap { display:flex; flex-wrap:wrap; }
 .bbs-seg { display:inline-flex; align-items:center; gap:7px; padding:8px 18px; background:transparent; border:0; border-radius:var(--bbs-radius-sm); color:var(--bbs-ink-soft); font-family:var(--bbs-font-sans); font-size:13px; cursor:pointer; transition:background var(--bbs-dur) var(--bbs-ease),color var(--bbs-dur) var(--bbs-ease); }
