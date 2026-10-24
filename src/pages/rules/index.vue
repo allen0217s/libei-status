@@ -158,6 +158,10 @@ onBeforeUnmount(() => { alive = false; actionEpoch++; previewEpoch++; });
             <div class="libei-entry-body"><label class="libei-field"><span>初值名称</span><input v-model="initial.label" class="bbs-input" type="text" /></label><label class="libei-field"><span>{{ initial.label || '变量初值' }} · YAML</span><textarea v-model="initial.text" class="bbs-input libei-editor" rows="12" spellcheck="false" :aria-label="`初值YAML ${index + 1}`" /></label></div>
           </details>
         </section>
+      </fieldset>
+      <fieldset class="libei-rule-fields" :disabled="!canEdit || saving || importing">
+        <legend class="libei-sr-only">上下文条目与预览</legend>
+        <section class="libei-context-region" aria-label="上下文条目与预览">
         <section class="libei-context-editor" aria-label="上下文条目编辑">
           <h3>上下文条目</h3><p class="libei-hint">按下列顺序逐项查看和编辑。标记显示条目的使用方；实际拼接结果在下方按需预览。</p>
           <ol class="libei-context-list">
@@ -170,8 +174,7 @@ onBeforeUnmount(() => { alive = false; actionEpoch++; previewEpoch++; });
           </ol>
           <details class="libei-rule-entry libei-protection"><summary><span class="libei-entry-title">程序固定写入保护</span><span class="libei-entry-tag">只读 · 不可编辑</span></summary><div class="libei-entry-body"><p>钱财、元精和算式只由程序结算。模型不能直接覆盖这些字段，也不能用替换整个主角对象绕过保护。编辑提示词不会改变这条边界，数值参数仍由引擎校验。</p></div></details>
         </section>
-      </fieldset>
-      <section class="libei-preview" :aria-busy="previewBusy" aria-label="草稿上下文预览">
+        <section class="libei-preview" :aria-busy="previewBusy" aria-label="草稿上下文预览">
         <h3>上下文预览</h3>
         <p class="libei-hint">只预览当前草稿，不保存、不发送模型请求，不显示渠道密钥。默认不扫描世界书；点击“收集世界书参考”才显式收集。若开启世界书模板执行，引擎会拒绝预览，避免执行副作用。</p>
         <div class="libei-actions"><button class="bbs-btn" type="button" :disabled="!canEdit || previewBusy || saving || importing" @click="previewContext(false)">{{ previewBusy ? '正在构建预览…' : '预览当前草稿' }}</button><button class="bbs-btn" type="button" :disabled="!canEdit || previewBusy || saving || importing" @click="previewContext(true)">收集世界书参考</button></div>
@@ -188,7 +191,9 @@ onBeforeUnmount(() => { alive = false; actionEpoch++; previewEpoch++; });
           <details class="libei-preview-entry"><summary>查看草稿正文注入段（未应用）</summary><pre class="libei-preview-text">{{ preview.story?.content }}</pre></details>
           <details class="libei-preview-entry"><summary>当前实际注入段（引擎报告）</summary><div class="libei-entry-body"><p class="libei-hint">{{ preview.story?.applied?.enabled ? '引擎报告当前已启用注入；不代表模型已接收。' : '引擎报告当前未启用注入。' }} {{ preview.story?.applied?.reason }}</p><pre class="libei-preview-text">{{ preview.story?.applied?.content }}</pre></div></details>
         </template>
+        </section>
       </section>
+      </fieldset>
     </template>
     <p v-else class="bbs-empty">请先打开一个单角色聊天，等待当前角色规则载入。</p>
     <Collapsible title="状态更新选项" :open="false">
@@ -204,10 +209,10 @@ onBeforeUnmount(() => { alive = false; actionEpoch++; previewEpoch++; });
 <style scoped>
 .libei-rules-page{display:flex;flex-direction:column;gap:14px;min-width:0}.libei-rules-page h3,.libei-rules-page h4,.libei-rules-page h5{margin:0;font-weight:600}.libei-rules-page h3{font-size:15px}.libei-rules-page h4{font-size:13px}.libei-rules-page h5{font-size:12px}
 .libei-hint{font-size:12px;line-height:1.7;color:var(--bbs-ink-soft);margin:0;overflow-wrap:anywhere}.libei-profile strong{font-weight:600}.libei-notice{font-size:12px;line-height:1.7;color:var(--bbs-ink);background:var(--bbs-surface-2);padding:9px 12px;margin:0;border-radius:var(--bbs-radius-sm);overflow-wrap:anywhere}.libei-error{color:var(--bbs-danger);font-size:12px;line-height:1.7;overflow-wrap:anywhere;margin:0}
-.libei-rule-fields{border:0;padding:0;margin:0;min-width:0;display:grid;gap:16px}.libei-field{display:flex;flex-direction:column;gap:7px;font-size:13px;min-width:0}.libei-field>.bbs-input{width:100%;min-width:0}.libei-initials,.libei-context-editor,.libei-preview{display:grid;gap:10px;min-width:0}.libei-context-list,.libei-message-list{list-style:none;display:grid;gap:9px;margin:0;padding:0;min-width:0}.libei-context-list>li,.libei-message-list>li{min-width:0}
+.libei-rule-fields{border:0;padding:0;margin:0;min-width:0;display:grid;gap:16px}.libei-field{display:flex;flex-direction:column;gap:7px;font-size:13px;min-width:0}.libei-field>.bbs-input{width:100%;min-width:0}.libei-initials,.libei-context-editor,.libei-preview{display:grid;gap:10px;min-width:0}.libei-context-region{display:grid;gap:16px;min-width:0}.libei-context-list,.libei-message-list{list-style:none;display:grid;gap:9px;margin:0;padding:0;min-width:0}.libei-context-list>li,.libei-message-list>li{min-width:0}
 .libei-rule-entry,.libei-preview-entry{min-width:0;border:1px solid var(--bbs-line);border-radius:var(--bbs-radius);background:var(--bbs-surface);overflow:hidden}.libei-rule-entry>summary,.libei-preview-entry>summary{cursor:pointer;padding:12px;min-height:44px;font-size:13px;line-height:1.6;overflow-wrap:anywhere}.libei-rule-entry>summary{display:flex;flex-wrap:wrap;align-items:center;gap:7px;list-style:none}.libei-rule-entry>summary::after{content:'＋';margin-left:auto;flex:none;color:var(--bbs-ink-soft)}.libei-rule-entry[open]>summary::after{content:'−'}.libei-rule-entry>summary::-webkit-details-marker{display:none}.libei-rule-entry[open]>summary,.libei-preview-entry[open]>summary{border-bottom:1px solid var(--bbs-line)}
 .libei-entry-title{font-weight:600;min-width:0;overflow-wrap:anywhere}.libei-entry-number{font:11px var(--bbs-font-mono);color:var(--bbs-ink-soft)}.libei-entry-tag{font-size:10px;font-weight:400;color:var(--bbs-ink-soft);overflow-wrap:anywhere}.libei-entry-body{display:grid;gap:10px;min-width:0;padding:12px}.libei-entry-body>p{font-size:12px;line-height:1.7;margin:0;overflow-wrap:anywhere}.libei-editor{min-height:160px;font:13px/1.7 var(--bbs-font-mono);resize:vertical;tab-size:2;max-width:100%;overflow-wrap:anywhere;white-space:pre-wrap}
-.libei-actions{display:flex;flex-wrap:wrap;gap:8px}.libei-actions>.bbs-btn{min-height:40px;white-space:normal;text-align:left}.libei-rule-actions{position:sticky;top:0;z-index:2;background:var(--bbs-bg);padding:8px 0;border-bottom:1px solid var(--bbs-line)}.libei-protection{background:var(--bbs-surface-2)}.libei-preview{border-top:1px solid var(--bbs-line);padding-top:14px}.libei-preview-text{font:12px/1.7 var(--bbs-font-mono);white-space:pre-wrap;overflow-wrap:anywhere;margin:0;min-width:0;max-height:480px;overflow:auto;padding:12px;background:var(--bbs-surface-2);border-radius:var(--bbs-radius-sm)}.libei-message-list{padding:12px}.libei-message-list>li{display:grid;gap:6px}.libei-switch{display:flex;justify-content:space-between;align-items:center;gap:14px;margin:12px 0;font-size:13px}.libei-switch>input{flex:none}
+.libei-actions{display:flex;flex-wrap:wrap;gap:8px}.libei-actions>.bbs-btn{min-height:40px;white-space:normal;text-align:left}.libei-rule-actions{padding:8px 0;border-bottom:1px solid var(--bbs-line)}.libei-protection{background:var(--bbs-surface-2)}.libei-preview{border-top:1px solid var(--bbs-line);padding-top:14px}.libei-preview-text{font:12px/1.7 var(--bbs-font-mono);white-space:pre-wrap;overflow-wrap:anywhere;margin:0;min-width:0;max-height:480px;overflow:auto;padding:12px;background:var(--bbs-surface-2);border-radius:var(--bbs-radius-sm)}.libei-message-list{padding:12px}.libei-message-list>li{display:grid;gap:6px}.libei-switch{display:flex;justify-content:space-between;align-items:center;gap:14px;margin:12px 0;font-size:13px}.libei-switch>input{flex:none}
 .libei-rules-page summary:focus-visible,.libei-rules-page button:focus-visible{outline:2px solid var(--bbs-ink-soft);outline-offset:-3px}.libei-sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(max-width:400px){.libei-rule-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.libei-rule-actions>.bbs-btn{justify-content:center;width:100%;padding:8px}.libei-rule-entry>summary,.libei-preview-entry>summary{padding:10px}.libei-entry-body{padding:10px}.libei-entry-tag{font-size:10px}.libei-editor{font-size:16px;min-height:180px}.libei-preview-text{font-size:12px}}
 </style>
