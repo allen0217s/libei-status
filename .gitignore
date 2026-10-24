@@ -16,3 +16,12 @@ backups/
 exports/
 .DS_Store
 Thumbs.db
+
+# Reproducible build and isolated test outputs
+dist/
+.test-api/
+/screenshots/
+isolated-browser-*/
+/browser_test_report.json
+/unit_test_report.json
+.pnpm-store/

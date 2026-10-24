@@ -1,12 +1,13 @@
 {
-  "display_name": "黎北 · 独立状态面板",
+  "display_name": "黎北 · 独立状态面板 v2（预览版）",
   "loading_order": 200,
   "requires": [],
   "optional": [],
   "js": "index.js",
   "css": "",
-  "author": "黎北状态面板",
-  "version": "1.0.0",
+  "author": "黎北状态面板；界面与渠道来源：柏柏 ST-BaiBai-Book",
+  "version": "2.0.0-local.1",
   "homePage": "https://github.com/allen0217s/libei-status",
-  "auto_update": false
+  "auto_update": false,
+  "minimum_client_version": "1.19.0"
 }
