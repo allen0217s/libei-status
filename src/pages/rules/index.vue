@@ -4,6 +4,7 @@ import Icon from '@/components/Icon.vue';
 import BbsSelect from '@/components/BbsSelect.vue';
 import Collapsible from '@/components/Collapsible.vue';
 import FieldSchemaEditor from './FieldSchemaEditor.vue';
+import WorldbookReferences from './WorldbookReferences.vue';
 import { engineView as view, runEngine } from '@/state/engine';
 
 interface ContextEntry { id: string; title: string; content: string; editable: boolean; field?: string; role?: string }
@@ -26,13 +27,14 @@ let loadingDraft = false, alive = true, actionEpoch = 0, previewEpoch = 0, schem
 function invalidateSchemaReview() { schemaReviewEpoch++; schemaReview.value = null; }
 const entries = [
   { field:'systemPrompt', title:'插件模型额外任务说明', audience:'插件模型', hint:'补充状态维护任务；不替代程序固定写入保护。' },
-  { field:'updateRules', title:'变量更新规则', audience:'插件模型', hint:'描述字段含义、依据和更新条件。' },
-  { field:'numericRules', title:'数值与事件规则', audience:'插件模型 / 正文参考', hint:'用于事件判断；自然语言不是计算公式执行器。' },
+  { field:'updateRules', title:'通用与未匹配规则', audience:'插件模型', hint:'保留跨字段的通用要求，以及尚未归入字段的原文。各字段的独立规则在字段定义中编辑。' },
   { field:'numericConfig', title:'程序计算参数', audience:'程序结算', hint:'编辑 JSON 数值参数，保存和预览前都会校验。' },
   { field:'outputFormat', title:'模型输出协议', audience:'插件模型', hint:'约定更新模型返回格式，不能改变固定字段写入权。' },
   { field:'snapshotTemplate', title:'正文状态注入模板', audience:'正文模型', hint:'正文生成时使用的状态模板，不是酒馆完整预设。' },
   { field:'storyInstruction', title:'正文职责说明', audience:'正文模型', hint:'补充正文如何使用状态，与插件更新任务分开。' },
 ] as const;
+const addCommon = ref(false);
+const visibleEntries = computed(() => entries.filter(entry => entry.field !== 'updateRules' || !!draft.value?.updateRules || addCommon.value));
 const initials = computed<Array<{id:string;label:string;text:string}>>(() => Array.isArray(draft.value?.initials) ? draft.value.initials : []);
 const initialOptions = computed(() => [{ value:'', label:'请选择初值方案' }, ...initials.value.map(item => ({value:item.id,label:item.label || item.id}))]);
 const canEdit = computed(() => !!draft.value && !!profileKey.value && draftProfile.value === profileKey.value);
@@ -41,7 +43,7 @@ const previewEntries = computed(() => [
   ...(preview.value?.update?.entries || []).map(entry => ({ ...entry, source:'插件模型', key:'update:' + entry.id })),
   ...(preview.value?.story?.entries || []).map(entry => ({ ...entry, source:'正文模型', key:'story:' + entry.id })),
 ]);
-const readOnlyEntries = computed(() => previewEntries.value.filter(entry => entry.field !== 'fieldSchema' && !entries.some(item => item.field === entry.field)));
+const readOnlyEntries = computed(() => previewEntries.value.filter(entry => entry.field !== 'fieldSchema' && entry.field !== 'worldbookReferences' && !entries.some(item => item.field === entry.field)));
 function fieldPreviews(field:string) { return previewEntries.value.filter(entry => entry.field === field); }
 function fieldSource(field:string) { return field === 'numericConfig' ? numericText.value : draft.value?.[field]; }
 async function addInitial() {
@@ -66,6 +68,7 @@ function loadDraft(value:any) {
   invalidateSchemaReview();
   loadingDraft = true;
   newInitialId.value = '';
+  addCommon.value = !!value?.updateRules;
   draft.value = clone(value);
   if (draft.value) for (const field of ['protagonistName','systemPrompt','storyInstruction']) if (typeof draft.value[field] !== 'string') draft.value[field] = '';
   numericText.value = draft.value?.numericConfig ? JSON.stringify(draft.value.numericConfig, null, 2) : '{}';
@@ -225,17 +228,21 @@ onBeforeUnmount(() => { alive = false; actionEpoch++; previewEpoch++; invalidate
         <section class="libei-context-region" :aria-busy="previewBusy" aria-label="上下文条目与预览">
           <h3>上下文 · 查看与编辑</h3>
           <p class="libei-hint">每个条目在原位编辑和查看，不再分列两份。点击预览后，展开条目可查看组装结果；修改草稿会清除旧预览，需要重新生成。</p>
-          <div class="libei-actions"><button class="bbs-btn" type="button" :disabled="!canEdit || previewBusy || saving || importing" @click="previewContext(false)">{{ previewBusy ? '正在构建预览…' : '预览当前草稿' }}</button><button class="bbs-btn" type="button" :disabled="!canEdit || previewBusy || saving || importing" @click="previewContext(true)">收集世界书参考</button></div>
-          <p class="libei-hint">预览不保存、不发送模型请求、不显示密钥。默认不扫描世界书；若开启世界书模板执行，预览会拒绝扫描，避免执行 EJS 或写变量。</p>
+          <div class="libei-actions"><button class="bbs-btn" type="button" :disabled="!canEdit || previewBusy || saving || importing" @click="previewContext(false)">{{ previewBusy ? '正在构建预览…' : '预览当前草稿' }}</button><button class="bbs-btn" type="button" :disabled="!canEdit || previewBusy || saving || importing" @click="previewContext(true)">收集已选世界书参考</button></div>
+          <p class="libei-hint">预览不保存，也不发送模型请求。默认不收集引用；点击“收集已选世界书参考”才读取所选条目的原文，不执行宏或 EJS。</p>
           <p v-if="previewError" class="libei-error" role="alert">{{ previewError }}</p>
           <template v-if="preview">
-            <p class="libei-notice" role="status">草稿预览 · 未保存、未发送{{ preview.targetId >= 0 ? ` · 目标第 ${preview.targetId} 楼` : '' }} · {{ previewWithWorldbooks ? '已请求收集世界书参考' : '未扫描世界书' }}</p>
+            <p class="libei-notice" role="status">草稿预览 · 未保存、未发送{{ preview.targetId >= 0 ? ` · 目标第 ${preview.targetId} 楼` : '' }} · {{ previewWithWorldbooks ? '已请求收集所选引用' : '未收集引用' }}</p>
             <p v-if="preview.reason" class="libei-hint">{{ preview.reason }}</p>
             <p v-if="!preview.available" class="libei-hint">当前仅供检查草稿结构，不代表已有可发送的完整请求。请先处理上述原因。</p>
             <p class="libei-hint">{{ preview.update?.worldbookStatus }}</p>
           </template>
+          <WorldbookReferences v-model="draft.worldbookReferences" :profile-key="draftProfile" :disabled="!canEdit || saving || importing">
+            <template #preview><div v-for="rendered in fieldPreviews('worldbookReferences')" :key="rendered.key" class="libei-inline-preview" :data-projection="rendered.key"><h4>{{ rendered.source }} · 引用原文预览</h4><pre class="libei-preview-text">{{ rendered.content }}</pre></div></template>
+          </WorldbookReferences>
+          <button v-if="!draft.updateRules && !addCommon" class="bbs-btn" type="button" data-action="add-common-rules" @click="addCommon = true">添加通用规则</button>
           <ol class="libei-context-list">
-            <li v-for="(entry, index) in entries" :key="entry.field">
+            <li v-for="(entry, index) in visibleEntries" :key="entry.field">
               <details class="libei-rule-entry" :data-rule-field="entry.field">
                 <summary><span class="libei-entry-number">{{ String(index + 1).padStart(2, '0') }}</span><span class="libei-entry-title">{{ entry.title }}</span><span class="libei-entry-tag">{{ entry.audience }} · 可编辑</span></summary>
                 <div class="libei-entry-body">
@@ -275,7 +282,6 @@ onBeforeUnmount(() => { alive = false; actionEpoch++; previewEpoch++; invalidate
       <p class="libei-hint">更新选项单独保存；上下文预览使用引擎当前已保存的选项。</p>
       <label class="libei-switch"><span>正文完成后自动更新状态</span><input v-model="optionsDraft.automatic" class="bbs-checkbox" type="checkbox" /></label>
       <label class="libei-field"><span>参考最近消息数（2～30；只结算目标楼层）</span><input v-model.number="optionsDraft.contextMessages" type="number" min="2" max="30" class="bbs-input" /></label>
-      <label class="libei-switch"><span>向正文模型提供数值事件规则</span><input v-model="optionsDraft.sendNumericToStory" class="bbs-checkbox" type="checkbox" /></label>
       <button class="bbs-btn bbs-btn-primary" type="button" :disabled="!canEdit || view.busy || optionsSaving" @click="saveOptions">{{ optionsSaving ? '保存中…' : '保存更新选项' }}</button>
     </Collapsible>
   </section>

@@ -119,7 +119,8 @@ const checks = [];
       assert.equal(await E("__root.querySelectorAll('[data-rule-field]').length"), 7);
       assert.equal(await E("__root.querySelectorAll('.libei-context-region').length"), 1);
       assert.equal(await E("__root.querySelectorAll('.libei-context-editor,.libei-preview').length"), 0);
-      assert.equal(await E("__root.querySelectorAll('[data-rule-field=numericRules] .libei-inline-preview').length"), 2);
+      assert.equal(await E("__root.querySelectorAll('[data-rule-field=numericRules]').length"), 0);
+      assert.equal(await E("__root.querySelectorAll('[data-rule-field=worldbookReferences]').length"), 1);
       assert.equal(await E("__root.querySelectorAll('[data-rule-field=systemPrompt] textarea').length"), 1);
       assert.equal(await E("__root.querySelectorAll('[data-rule-field=systemPrompt] pre').length"), 0);
       assert.ok(await E("__root.querySelector('[data-rule-field=snapshotTemplate] pre').textContent.includes('主角')"));
@@ -162,9 +163,10 @@ const checks = [];
       assert.equal(await E('__requests.length'), requests);
       await click('放弃修改');
     });
-    await check('Explicit worldbook collection filters excluded data within the same list', async () => {
+    await check('Explicit reference collection includes selected raw content, not unselected old variable material', async () => {
+      await E("(()=>{__previewContext.characters[0].data={extensions:{world:'剧情设定'}};const rules=__libeiV2App.api.snapshot().rules;rules.worldbookReferences=[{book:'剧情设定',uid:'0'}];__libeiV2App.api.saveRules(rules,'rules-ui.png')})()");
       const before = await memory(), requests = await E('__requests.length');
-      await click('收集世界书参考');
+      await click('收集已选世界书参考');
       await wait("__root.querySelector('[data-context-readonly=\"update:worldbooks\"] pre')?.textContent.includes('WORLD_ALLOWED_CONTENT')");
       assert.equal(await E("__root.querySelector('.libei-context-region').textContent.includes('WORLD_MVU_EXCLUDED_CONTENT')"), false);
       assert.equal(await memory(), before);

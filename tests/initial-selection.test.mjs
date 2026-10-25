@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import vm from 'node:vm';
 import { createFieldSchemaToolkit } from '../src/engine/field-schema.js';
+import { createRuleSectionToolkit } from '../src/engine/rule-sections.js';
+import { validateReferenceConfig } from '../src/engine/reference-config.js';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -10,7 +12,7 @@ const source = await readFile(path.join(root, 'src/engine/legacy-adapter.js'), '
 const start = source.indexOf('var LbYamlEmbedded=');
 const end = source.indexOf('/* Native SillyTavern adapter.');
 assert.ok(start >= 0 && end > start, 'engine core markers exist');
-const sandbox = { TextEncoder, createFieldSchemaToolkit };
+const sandbox = { TextEncoder, createFieldSchemaToolkit, createRuleSectionToolkit, validateReferenceConfig };
 vm.runInNewContext(
   `${source.slice(start, end)}\nglobalThis.__initialTest = { yaml: LbYamlEmbedded, createCore: createLibeiStatusCore, createTimeline: createLibeiTimelineStore };`,
   sandbox,

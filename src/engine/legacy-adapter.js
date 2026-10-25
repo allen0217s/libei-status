@@ -1,6 +1,8 @@
 // Adapted from the published v1 engine; maintained source with protocol and settlement upgrades.
 // @ts-nocheck
 import { createFieldSchemaToolkit } from './field-schema.js';
+import { createRuleSectionToolkit } from './rule-sections.js';
+import { validateReferenceConfig } from './reference-config.js';
 export function startEngine(nativeExports, apiBridge) {
 const LB_PROMPT_TYPES=nativeExports.extension_prompt_types;
 const LB_PROMPT_ROLES=nativeExports.extension_prompt_roles;
@@ -156,7 +158,7 @@ ${t.comment}`:t.comment}this.doc.range[2]=t.offset;break}default:this.errors.pus
 /* Pure validation and request core. No DOM, network or storage side effects. */
 function createLibeiStatusCore(YAML) {
   'use strict';
-  const F = createFieldSchemaToolkit();
+  const F = createFieldSchemaToolkit(), R = createRuleSectionToolkit(YAML);
   const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
   const object = o => o !== null && Object.prototype.toString.call(o) === '[object Object]';
   const bad = new Set(['__proto__', 'prototype', 'constructor']);
@@ -429,10 +431,12 @@ function createLibeiStatusCore(YAML) {
       parseYaml(initial.text, rules.fieldSchema);
     }
     if (typeof rules.initialChoice !== 'string' || (rules.initialChoice !== '' && rules.initialChoice !== 'auto' && !ids.has(rules.initialChoice))) fail('选择的初值方案不存在。');
-    for (const field of ['updateRules', 'outputFormat', 'numericRules', 'snapshotTemplate']) {
+    for (const field of ['updateRules', 'outputFormat', 'snapshotTemplate']) {
       if (typeof rules[field] !== 'string' || rules[field].length > 100000) fail('规则文字无效或过长：' + field);
     }
-    if (!rules.updateRules.trim() || !rules.outputFormat.trim()) fail('更新规则和输出格式不能为空。');
+    if (!rules.outputFormat.trim()) fail('输出格式不能为空。');
+    if (rules.worldbookReferences !== undefined) validateReferenceConfig(rules.worldbookReferences);
+    if (rules.fieldRuleSplitVersion !== undefined && rules.fieldRuleSplitVersion !== 1) fail('不支持的字段规则分割版本。');
     if (own(rules, 'updateProtocol') && rules.updateProtocol !== 2) fail('不支持的更新协议版本，不会降级覆盖。');
     numericConfig(rules);
     return rules;
@@ -514,6 +518,7 @@ function createLibeiStatusCore(YAML) {
     return {schema:{version:1,fields},notes};
   }
   function upgradeProfile(value) {
+    const originalRules = typeof value?.updateRules === 'string' ? value.updateRules : '';
     const rules = migrateRules(value);
     for (const initial of rules.initials) {
       const doc = YAML.parseDocument(initial.text);
@@ -532,7 +537,15 @@ function createLibeiStatusCore(YAML) {
       const raw = parseYamlData(initial.text), prepared = F.prepareState(raw, rules.fieldSchema);
       if (JSON.stringify(raw) !== JSON.stringify(prepared.state)) initial.text = JSON.stringify(prepared.state, null, 2);
     }
-    rules.updateRules = rules.updateRules.replace(/黎北([.\/])/g, '主角$1');
+    if (rules.fieldRuleSplitVersion !== 1) {
+      const split = R.split(originalRules,rules.fieldSchema.fields);
+      rules.fieldSchema = {...rules.fieldSchema,fields:split.fields};
+      rules.fieldRuleSource = originalRules;
+      rules.updateRules = split.shared;
+      rules.fieldRuleSplitVersion = 1;
+    }
+    rules.worldbookReferences = validateReferenceConfig(rules.worldbookReferences ?? []);
+    delete rules.numericRules;
     rules.outputFormat = rules.outputFormat.replace(/整个主角对象/g, '整个主角对象');
     rules.protagonistName ??= '';
     rules.systemPrompt ??= TASK_PROMPT;
@@ -560,7 +573,6 @@ function createLibeiStatusCore(YAML) {
   想法: 未记录
 ` }],
       updateRules:'只跟踪当前配置的男性主角，不将其他人物的状态混入。按本轮事实维护世界日期、HH:MM 时间、地点、主角穿着的衣物与遮露、身体近况、随身物品和想法。没有可靠信息就保持原值；未记录不代表已经发生。新物品 add，离身物品 remove；钱财和消耗用事件报告，不直接写最终值。日期可用连续的第N天；若使用公历，跨月前应明确年份。',
-      numericRules:'只记录本轮实际收入、支出和身体消耗；计划、意图和仅达到数值阈值都不是已经发生的事件。金额按当前故事确定，不套用其他角色的物价。没有可靠依据时不要编造。消耗量遵守当前 numericConfig 的区间；这些是可调整的游戏参数，不是医学标准。',
       outputFormat:OUTPUT_PROTOCOL.replace(/整个主角对象/g,'整个主角对象'), snapshotTemplate:'当前状态：\n{state_json}',
       numericConfig:{ version:1, hourlyGain:0, normalMin:10, normalMax:20, dreamMin:20, dreamMax:40, moneyMax:1000000000000 }
     });
@@ -573,7 +585,8 @@ function createLibeiStatusCore(YAML) {
     return [row('system','插件任务说明',rules.systemPrompt,'systemPrompt'),
       row('identity','跟踪对象',JSON.stringify({name,root:'主角'})),
       row('fields','集中字段定义（类型与写入权以此为准）',F.prompt(rules.fieldSchema),'fieldSchema'),
-      row('variables','变量更新规则',rules.updateRules,'updateRules'), row('events','数值与事件规则',rules.numericRules,'numericRules'),
+      ...(rules.updateRules.trim() ? [row('variables','通用与未匹配规则',rules.updateRules,'updateRules')] : []),
+      row('references','参考世界书条目',JSON.stringify(rules.worldbookReferences,null,2).replace(/\{\{/g,'\\u007b\\u007b'),'worldbookReferences'),
       row('numeric','程序结算参数',JSON.stringify(numericConfig(rules),null,2),'numericConfig'), row('output','模型输出协议',rules.outputFormat,'outputFormat'),
       row('guard','固定写入保护（程序约束）',WRITE_GUARD),
       row('state','前楼状态快照',JSON.stringify({previous_state:base ? F.project(F.prepareState(base,rules.fieldSchema).state,rules.fieldSchema) : null},null,2),null,'user'),
@@ -595,7 +608,6 @@ function createLibeiStatusCore(YAML) {
     const entries = [{id:'story-identity',title:'跟踪对象',content:safe(JSON.stringify({name,root:'主角'})),editable:false},
       {id:'story-state',title:'当前状态',content:state ? safe(snapshotText(rules.snapshotTemplate,F.prepareState(state,rules.fieldSchema).state,rules.fieldSchema)) : '尚无初始状态，不会注入。',editable:true,field:'snapshotTemplate'}];
     entries.push({id:'story-fields',title:'字段名称、类型与维护规则',content:safe(F.prompt(rules.fieldSchema)),editable:true,field:'fieldSchema'});
-    if (sendNumeric) entries.push({id:'story-events',title:'剧情适用的数值事件规则',content:rules.numericRules,editable:true,field:'numericRules'});
     entries.push({id:'story-instruction',title:'正文职责说明',content:rules.storyInstruction,editable:true,field:'storyInstruction'});
     return entries;
   }
@@ -1094,7 +1106,6 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
   field('maxTokens', '最大回复 Token（256～16000）', 'number');
   field('temperature', '温度（0～2）', 'number').step = '0.1';
   field('timeout', '请求超时秒数（10～600）', 'number');
-  field('sendNumericToStory', '向正文模型提供迁移的数值事件规则（不要求它输出更新命令）', 'checkbox');
   const remember = field('remember', '在此浏览器记住密钥（明文存储，同源脚本可读取）', 'checkbox');
   const apiActions = node('div', null, { class: 'lb-actions' }); apiPage.append(apiActions);
   button('保存 API 设置', saveApi, apiActions, 'lb-primary');
@@ -1193,7 +1204,7 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
   function fillRuleOptions() {
     ruleSelect.replaceChildren(); initialChoice.replaceChildren(node('option', '请选择初值方案', { value: '' }));
     draftRules.initials.forEach((item, i) => { ruleSelect.append(node('option', '变量初值 · ' + item.label, { value: 'initial:' + i })); initialChoice.append(node('option', item.label, { value: item.id })); });
-    for (const [value, label] of [['updateRules', '变量更新规则'], ['outputFormat', '变量输出格式'], ['numericRules', '数值与事件规则'], ['snapshotTemplate', '发给正文模型的当前状态模板']]) ruleSelect.append(node('option', label, { value }));
+    for (const [value, label] of [['updateRules', '通用与未匹配规则'], ['outputFormat', '变量输出格式'], ['snapshotTemplate', '发给正文模型的当前状态模板']]) ruleSelect.append(node('option', label, { value }));
     if (![...ruleSelect.options].some(o => o.value === activeRule)) activeRule = 'initial:0';
     ruleSelect.value = activeRule; initialChoice.value = draftRules.initialChoice; loadEditor();
   }
@@ -1206,7 +1217,11 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
   }
   function collectApi() {
     const c = {};
-    for (const name of Object.keys(DEFAULT_CONFIG)) { const e = apiFields[name]; c[name] = e.type === 'checkbox' ? e.checked : e.type === 'number' ? Number(e.value) : e.value.trim(); }
+    for (const name of Object.keys(DEFAULT_CONFIG)) {
+      const e = apiFields[name];
+      if (!e) { c[name] = stored.config[name] ?? DEFAULT_CONFIG[name]; continue; }
+      c[name] = e.type === 'checkbox' ? e.checked : e.type === 'number' ? Number(e.value) : e.value.trim();
+    }
     return checkConfig(c);
   }
   function saveRules() {
@@ -1258,7 +1273,7 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
       try { const current = identity(); return current.card === scope.card && current.chatId === scope.chatId && serial(T.transcript(current.chat)) === transcript; } catch (_) { return false; }
     };
     try {
-      const response = await apiBridge.request(messages, { signal: abort.signal, valid, chat: C.clone(scope.chat), targetId: target?.id ?? latestAI(scope.chat), contextMessages: config.contextMessages });
+      const response = await apiBridge.request(messages, { signal: abort.signal, valid, chat: C.clone(scope.chat), profileKey:scope.card, worldbookReferences:target ? C.clone(activeRules().worldbookReferences) : [], targetId: target?.id ?? latestAI(scope.chat), contextMessages: config.contextMessages });
       if (!valid()) throw Error('请求已取消或聊天/配置已改变，结果未提交。');
       return response;
     } finally { if (controller === abort) controller = null; }
@@ -1519,15 +1534,15 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
       const entries = C.updateEntries(rules,state,context,targetId,protagonistName(rules));
       const messages = C.messagesFromEntries(entries), storyState = view.current?.state || null;
       output = { available:!!base, reason:base ? '按当前草稿临时组装；没有发送模型请求，也没有保存草稿。' : '当前只有开场或尚无初值；以下是草稿结构预览，不代表已有可发送的更新请求。', targetId,
-        update:{ entries, messages, worldbookStatus:'未收集；实际发送时会按排除规则收集。' },
+        update:{ entries, messages, worldbookStatus:'未读取选定条目；实际发送时按当前角色的条目引用和排除规则读取。' },
         story:{ entries:C.storyEntries(rules,storyState,stored.config.sendNumericToStory,protagonistName(rules)), content:storyState ? C.storyPrompt(rules,storyState,stored.config.sendNumericToStory,protagonistName(rules)) : '', applied:C.clone(injection) } };
       if (options.includeWorldbooks) {
         if (typeof apiBridge.preparePrompt !== 'function') throw Error('宿主缺少只读上下文预览接口。');
-        const prepared = await apiBridge.preparePrompt(messages,{ preview:true,chat:frozenChat,targetId,valid,signal:new AbortController().signal });
+        const prepared = await apiBridge.preparePrompt(messages,{ preview:true,chat:frozenChat,targetId,valid,profileKey,worldbookReferences:C.clone(rules.worldbookReferences),signal:new AbortController().signal });
         if (!valid()) return empty('聊天、角色或配置已改变，预览已丢弃。');
         output.update.messages = prepared.prompt;
-        output.update.worldbookStatus = prepared.worldInfo ? '已按本次扫描与排除规则收集；发送时会重新核对。' : '本次没有可用的世界书参考。';
-        output.update.entries = [{id:'worldbooks',title:'世界书参考（只读）',role:'system',editable:false,content:prepared.worldInfo || '本次为空。'},...entries];
+        output.update.worldbookStatus = prepared.worldInfo ? '已读取选定世界书条目原文；发送时会重新核对角色、条目和排除设置。' : '当前没有选定的世界书参考条目。';
+        output.update.entries = [{id:'worldbooks',title:'参考世界书条目原文（只读）',role:'system',editable:false,content:prepared.worldInfo || '未选择条目。'},...entries];
       } else output.update.entries = [{id:'worldbooks',title:'世界书参考（未扫描）',role:'system',editable:false,content:'仅在点击收集后扫描；不会把主模型完整预设或全部聊天上下文自动复制到插件模型。'},...entries];
       return valid() ? output : empty('聊天、角色或配置已改变，预览已丢弃。');
     } catch (error) { return output ? { ...output,available:false,reason:error.message } : empty(error.message); }
@@ -1543,6 +1558,15 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
   }
   const engineApi = {
     snapshot, previewContext, previewRulesChange, commitRulesChange, setFieldValue,
+    async listReferenceWorldbookEntries(expectedProfile = activeProfileKey()) {
+      const scope = identity(), expectedRevision = revision;
+      if (expectedProfile !== scope.card) throw Error('角色已切换，请刷新当前角色条目。');
+      if (typeof apiBridge.listReferences !== 'function') throw Error('当前宿主没有提供世界书条目读取能力。');
+      const valid = () => { try { const now = identity(); return !destroyed && revision === expectedRevision && now.card === scope.card && now.chatId === scope.chatId; } catch (_) { return false; } };
+      const result = await apiBridge.listReferences({expectedProfile,valid});
+      if (!valid()) throw Error('角色、聊天或配置已变化，条目列表已丢弃。');
+      return result;
+    },
     refresh() { renderState(); refreshInjection(); },
     invalidate() { revision++; autoAllowed = false; cancelRequest(); renderState(); refreshInjection(); },
     setFloor(id) { viewId = id === null ? null : Number(id); renderState(); },

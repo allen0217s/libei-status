@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { createFieldSchemaToolkit } from '../src/engine/field-schema.js';
+import { createRuleSectionToolkit } from '../src/engine/rule-sections.js';
+import { validateReferenceConfig } from '../src/engine/reference-config.js';
 
 const source = await readFile(new URL('../src/engine/legacy-adapter.js', import.meta.url), 'utf8');
-const sandbox = { TextEncoder, createFieldSchemaToolkit };
+const sandbox = { TextEncoder, createFieldSchemaToolkit, createRuleSectionToolkit, validateReferenceConfig };
 vm.runInNewContext(source.slice(source.indexOf('var LbYamlEmbedded='), source.indexOf('/* Native SillyTavern adapter.')) + '\nglobalThis.testCore={C:createLibeiStatusCore(LbYamlEmbedded),T:createLibeiTimelineStore};', sandbox);
 const { C, T } = sandbox.testCore;
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -172,5 +174,38 @@ test('Inactive unknown state is retained on subsequent normal append', () => {
   const result=C.settleUpdate(C.prepareUpdateBase(first.doc.current.state,null,rules.fieldSchema),[],rules,'');
   const saved=timeline.commit(first,timeline.append(first,scope.chat,2,result.state,result.patch,{fieldSchema:rules.fieldSchema}));
   assert.equal(saved.doc.current.state.extra.retained,true);
+});
+test('Legacy variable rules split verbatim once while original source and shared text are retained', () => {
+  const raw = { ...clone(generic), updateRules:'---\r\n变量更新规则:\r\n  总则:\r\n    - 保持原文\r\n  世界.地点:\r\n    check: 原样保留地点规则\r\n  黎北.想法:\r\n    check: 原样保留旧路径\r\n' };
+  delete raw.fieldRuleSplitVersion; delete raw.fieldRuleSource;
+  const before=JSON.stringify(raw), rules=C.upgradeProfile(raw);
+  assert.equal(rules.fieldRuleSource,raw.updateRules);
+  assert.ok(fieldAt(rules,['世界','地点']).rule.includes('  世界.地点:\r\n    check: 原样保留地点规则\r\n'));
+  assert.ok(fieldAt(rules,['主角','想法']).rule.includes('  黎北.想法:\r\n    check: 原样保留旧路径\r\n'));
+  assert.ok(rules.updateRules.includes('保持原文'));assert.ok(!rules.updateRules.includes('地点规则'));
+  assert.equal(JSON.stringify(raw),before);
+  assert.equal(JSON.stringify(C.upgradeProfile(rules)),JSON.stringify(rules));
+});
+test('Retired numeric prose is removed from both update and story prompts without altering numeric parameters', () => {
+  const raw={...clone(generic),numericRules:'RETIRED_NUMERIC_PROSE_123'}, rules=C.upgradeProfile(raw);
+  assert.equal(Object.hasOwn(rules,'numericRules'),false);
+  assert.equal(JSON.stringify(rules.numericConfig),JSON.stringify(raw.numericConfig));
+  assert.ok(!C.buildMessages(rules,base(),[],0)[0].content.includes('RETIRED_NUMERIC_PROSE_123'));
+  assert.ok(!C.storyPrompt(rules,base(),true).includes('RETIRED_NUMERIC_PROSE_123'));
+  assert.ok(C.buildMessages(rules,base(),[],0)[0].content.includes('参考世界书条目'));
+});
+test('An empty common-rule section remains valid when rules live under fields', () => {
+  const rules=clone(generic);rules.updateRules='';fieldAt(rules,['世界','地点']).rule='不要推测尚未到达的地点。';
+  assert.equal(C.upgradeProfile(rules).updateRules,'');
+  const messages=C.buildMessages(rules,base(),[],0);
+  assert.ok(messages[0].content.includes('不要推测尚未到达的地点。'));
+  assert.ok(!messages[0].content.includes('【通用与未匹配规则】'));
+});
+test('Reference selectors store stable validated book/UID pairs, never rule prose or row indices', () => {
+  const rules=clone(generic);rules.worldbookReferences=[{book:'角色资料',uid:'17'}];
+  assert.equal(C.upgradeProfile(rules).worldbookReferences[0].uid,'17');
+  for (const value of [[{book:'角色资料',uid:17}],[{book:'角色资料',uid:'17',content:'not a reference'}],[{book:'角色资料',uid:'17'},{book:'角色资料',uid:'17'}]]) {
+    const draft={...clone(generic),worldbookReferences:value};assert.throws(()=>C.upgradeProfile(draft),/参考/);
+  }
 });
 console.log('Field engine/timeline regressions: ' + checks.length + ' passed; memory-only, no live SillyTavern.');

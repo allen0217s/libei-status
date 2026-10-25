@@ -5,7 +5,7 @@ import './styles/base.css';
 import { apiSettings, hydrateSettings, migrationPending, validateChannel, engineActiveHere, ready } from './api/settings';
 import { requestCompletion, requestViaMainApi, mainApiAvailable } from './api/client';
 import { getContext } from './st/context';
-import { collectWorldbookContext } from './worldbooks';
+import { collectReferenceWorldbookContext, listReferenceWorldbookEntries } from './worldbook-references';
 import { openBook, closeBook } from './state/ui';
 import { attachEngine, invalidateEngine } from './state/engine';
 import { mountEntries } from './entries';
@@ -30,8 +30,7 @@ function ensureReady() {
 }
 
 async function preparePrompt(messages:Messages, options:any) {
-  if (options.preview && apiSettings.exclusions.renderWorldInfoTemplates) throw Error('世界书模板执行已开启。为避免预览执行 EJS 或写变量，本次不扫描；可先关闭模板执行再预览。');
-  const worldInfo = await collectWorldbookContext({signal:options.signal,chat:options.chat,targets:options.targetId >= 0 ? [options.targetId] : []});
+  const worldInfo = await collectReferenceWorldbookContext(options.worldbookReferences ?? [],{signal:options.signal,expectedProfile:options.profileKey,valid:options.valid});
   if (!options.valid()) throw Error('收集世界书期间聊天或配置改变，请求未发送。');
   if (worldInfo.length > 200000) throw Error('世界书参考内容超过 20 万字，请排除不需要的世界书后再试。');
   const prompt:Messages = worldInfo ? [{role:'system',content:worldInfo},...messages] : messages;
@@ -43,8 +42,13 @@ async function request(messages:Messages, options:any) {
   const channel=selectedId?clone(apiSettings.channels.find(c=>c.id===selectedId)!):null;
   const fingerprint=JSON.stringify({channels:apiSettings.channels,assignments:apiSettings.assignments,exclusions:apiSettings.exclusions,enabled:apiSettings.enabled});
   const valid=()=>options.valid() && !options.signal.aborted && fingerprint===JSON.stringify({channels:apiSettings.channels,assignments:apiSettings.assignments,exclusions:apiSettings.exclusions,enabled:apiSettings.enabled});
-  const {prompt} = await preparePrompt(messages,{...options,valid});
+  const {prompt,worldInfo} = await preparePrompt(messages,{...options,valid});
   const result=channel?await requestCompletion(channel,prompt,{signal:options.signal}):await requestViaMainApi(prompt,{signal:options.signal});
+  if(!valid())throw Error('请求已取消或上下文已改变，结果未写入。');
+  if (options.worldbookReferences?.length) {
+    const checked = await collectReferenceWorldbookContext(options.worldbookReferences,{signal:options.signal,expectedProfile:options.profileKey,valid});
+    if (checked !== worldInfo) throw Error('请求期间引用条目或世界书绑定已改变，结果未写入。');
+  }
   if(!valid())throw Error('请求已取消或上下文已改变，结果未写入。');
   return result;
 }
@@ -54,7 +58,7 @@ async function boot() {
   for(let i=0;i<120 && !getContext()?.extensionSettings;i++)await new Promise(resolve=>setTimeout(resolve,250));
   await hydrateSettings(); if(!ready)throw Error('酒馆设置未就绪，请待页面加载完成后刷新；未启动状态引擎。');
   const nativeExports=globals.__LIBEI_NATIVE_PREVIEW__ ?? await import(/* @vite-ignore */ new URL('../../../../script.js',import.meta.url).href);
-  const api=startEngine(nativeExports,{ensureReady,request,preparePrompt,enabled:()=>apiSettings.enabled && !unref(migrationPending) && engineActiveHere() && !getContext()?.groupId,open:()=>openBook()});
+  const api=startEngine(nativeExports,{ensureReady,request,preparePrompt,listReferences:listReferenceWorldbookEntries,enabled:()=>apiSettings.enabled && !unref(migrationPending) && engineActiveHere() && !getContext()?.groupId,open:()=>openBook()});
   const detachEngine=attachEngine(api);
   const host=document.createElement('div');host.id='libei-v2-shadow-host';
   host.style.cssText='all:initial!important;position:fixed!important;left:0!important;top:0!important;width:0!important;height:0!important;z-index:10000!important;pointer-events:none!important;';

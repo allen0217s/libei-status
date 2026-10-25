@@ -6,10 +6,11 @@
   "scripts": {
     "typecheck": "vue-tsc --noEmit",
     "build": "vite build && node scripts/sync-dist.cjs",
-    "test": "node tests/field-schema.test.mjs && node tests/field-engine.test.mjs && node tests/initial-selection.test.mjs && node tests/run-api-unit.mjs",
+    "test": "node tests/field-schema.test.mjs && node tests/rule-sections.test.mjs && node tests/field-engine.test.mjs && node tests/initial-selection.test.mjs && node tests/worldbook-references.test.mjs && node tests/run-api-unit.mjs",
     "test:browser": "node test_browser.cjs",
     "test:rules": "node tests/rules-page.browser.cjs",
-    "test:fields": "node tests/field-schema.browser.cjs"
+    "test:fields": "node tests/field-schema.browser.cjs",
+    "test:references": "node tests/rules-references.browser.cjs"
   },
   "dependencies": {
     "vue": "3.5.35"

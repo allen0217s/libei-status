@@ -47,13 +47,26 @@ export interface CheckWorldInfoResult {
   [key: string]: unknown;
 }
 export type CheckWorldInfoFn = (chat: string[], maxContext: number, isDryRun: boolean, globalScanData?: Record<string, unknown>) => Promise<CheckWorldInfoResult>;
-/** 此接口未在 getContext 稳定暴露，缺失时由调用方决定安全降级。 */
-export async function getCheckWorldInfo(): Promise<CheckWorldInfoFn | null> {
+async function importWorldInfo(): Promise<Record<string, any> | null> {
   try {
     const wiPath = '/scripts/world-info.js';
-    const mod: Record<string, unknown> = await import(/* @vite-ignore */ wiPath);
-    return typeof mod.checkWorldInfo === 'function' ? mod.checkWorldInfo as CheckWorldInfoFn : null;
+    return await import(/* @vite-ignore */ wiPath);
   } catch { return null; }
+}
+/** 此接口未在 getContext 稳定暴露，缺失时由调用方决定安全降级。 */
+export async function getCheckWorldInfo(): Promise<CheckWorldInfoFn | null> {
+  const mod = await importWorldInfo();
+  return typeof mod?.checkWorldInfo === 'function' ? mod.checkWorldInfo as CheckWorldInfoFn : null;
+}
+export interface WorldInfoReader {
+  loadWorldInfo: (name:string) => Promise<{entries?:Record<string,WorldInfoEntry>} | null | undefined>;
+  charLore: Array<{name:string;extraBooks?:string[]}>;
+}
+/** Read-only host capability, verified against ST source f63399a4; never writes or activates entries. */
+export async function getWorldInfoReader(): Promise<WorldInfoReader | null> {
+  const mod = await importWorldInfo();
+  if (typeof mod?.loadWorldInfo !== 'function') return null;
+  return {loadWorldInfo:mod.loadWorldInfo,get charLore() { return Array.isArray(mod.world_info?.charLore) ? mod.world_info.charLore : []; }};
 }
 export interface EjsTemplateApi {
   prepareContext: (context?: Record<string, unknown>, end?: number) => Promise<Record<string, unknown>>;
