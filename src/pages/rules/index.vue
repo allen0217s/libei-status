@@ -5,6 +5,7 @@ import BbsSelect from '@/components/BbsSelect.vue';
 import Collapsible from '@/components/Collapsible.vue';
 import FieldSchemaEditor from './FieldSchemaEditor.vue';
 import WorldbookReferences from './WorldbookReferences.vue';
+import RulePresets from './RulePresets.vue';
 import { engineView as view, runEngine } from '@/state/engine';
 
 interface ContextEntry { id: string; title: string; content: string; editable: boolean; field?: string; role?: string }
@@ -19,11 +20,12 @@ const cardName = computed(() => view.value.cardName || '尚未选择角色');
 const draftProfile = ref(profileKey.value), draft = ref<any>(null), numericText = ref('');
 const dirty = ref(false), saving = ref(false), importing = ref(false), localError = ref(''), notice = ref('');
 const optionsDraft = ref<any>({}), optionsDirty = ref(false), optionsSaving = ref(false);
-const fileInput = ref<HTMLInputElement | null>(null), rulesRoot = ref<HTMLElement | null>(null);
+const rulesRoot = ref<HTMLElement | null>(null), presetPanel = ref<InstanceType<typeof RulePresets> | null>(null);
+const presetDraft = ref(false);
 const preview = ref<ContextPreview | null>(null), previewBusy = ref(false), previewError = ref(''), previewWithWorldbooks = ref(false);
-interface SchemaReview { planId:string; changes:Array<Record<string,any>>; summary:string }
+interface SchemaReview { planId:string; changes:Array<Record<string,any>>; summary:string; kind?:'preset'|'fields' }
 const fieldEditor = ref<InstanceType<typeof FieldSchemaEditor> | null>(null), schemaReview = ref<SchemaReview | null>(null);
-let loadingDraft = false, alive = true, actionEpoch = 0, previewEpoch = 0, schemaReviewEpoch = 0, importProfile = '';
+let loadingDraft = false, alive = true, actionEpoch = 0, previewEpoch = 0, schemaReviewEpoch = 0;
 function invalidateSchemaReview() { schemaReviewEpoch++; schemaReview.value = null; }
 const entries = [
   { field:'systemPrompt', title:'插件模型额外任务说明', audience:'插件模型', hint:'补充状态维护任务；不替代程序固定写入保护。' },
@@ -68,6 +70,7 @@ function loadDraft(value:any) {
   invalidateSchemaReview();
   loadingDraft = true;
   newInitialId.value = '';
+  presetDraft.value = false;
   addCommon.value = !!value?.updateRules;
   draft.value = clone(value);
   if (draft.value) for (const field of ['protagonistName','systemPrompt','storyInstruction']) if (typeof draft.value[field] !== 'string') draft.value[field] = '';
@@ -107,13 +110,14 @@ async function save() {
   localError.value = ''; saving.value = true;
   try {
     const value = assembledDraft();
-    if (JSON.stringify(value.fieldSchema ?? null) !== JSON.stringify(view.value.rules?.fieldSchema ?? null)) {
+    if (presetDraft.value || JSON.stringify(value.fieldSchema ?? null) !== JSON.stringify(view.value.rules?.fieldSchema ?? null)) {
       invalidateSchemaReview();
       const reviewEpoch = schemaReviewEpoch;
-      const plan = await runEngine('previewRulesChange', value, key) as SchemaReview;
+      const kind = presetDraft.value ? 'preset' : 'fields';
+      const plan = await runEngine(kind === 'preset' ? 'previewRulePreset' : 'previewRulesChange', value, key) as SchemaReview;
       if (!alive || epoch !== actionEpoch || key !== profileKey.value || reviewEpoch !== schemaReviewEpoch) return;
       if (!plan || typeof plan.planId !== 'string' || !Array.isArray(plan.changes)) throw Error('引擎没有返回可审核的字段变更计划，草稿未保存。');
-      schemaReview.value = plan; notice.value = '请审核字段变更。确认只保存配置，不会在这里改写当前聊天状态。';
+      schemaReview.value = {...plan,kind}; notice.value = kind === 'preset' ? '请审核整套预设替换：确认后替换当前角色字段和规则，已有聊天快照不改写。' : '请审核字段变更。确认只保存配置，不会在这里改写当前聊天状态。';
       return;
     }
     await runEngine('saveRules', value, key);
@@ -125,40 +129,43 @@ async function save() {
 async function confirmSchemaSave() {
   const plan = schemaReview.value;
   if (!plan || !canEdit.value || saving.value || importing.value || view.value.busy) return;
-  const key = draftProfile.value, epoch = actionEpoch, reviewEpoch = schemaReviewEpoch;
+  const key = draftProfile.value, epoch = actionEpoch;
   saving.value = true; localError.value = '';
   try {
-    await runEngine('commitRulesChange', plan.planId);
-    if (!alive || epoch !== actionEpoch || key !== profileKey.value || reviewEpoch !== schemaReviewEpoch) return;
+    await runEngine(plan.kind === 'preset' ? 'commitRulePreset' : 'commitRulesChange', plan.planId);
+    if (!alive || epoch !== actionEpoch || key !== profileKey.value) return;
     loadDraft(view.value.rules); invalidatePreview();
-    notice.value = '字段配置已保存，旧楼层没有改写。缺失字段按默认值在内存中补齐，下次正常更新或手动写入当前字段时才保存。';
+    notice.value = plan.kind === 'preset' ? '预设已应用，当前状态留空。请到“当前状态”点击手动生成；旧快照仍保留。' : '字段配置已保存，旧楼层没有改写。缺失字段按默认值在内存中补齐，下次正常更新或手动写入当前字段时才保存。';
   } catch (error) {
     if (alive && epoch === actionEpoch && key === profileKey.value) { invalidateSchemaReview(); localError.value = error instanceof Error ? error.message : String(error); }
   } finally { if (alive && epoch === actionEpoch) saving.value = false; }
 }
 function cancelSchemaSave() { invalidateSchemaReview(); notice.value = '已取消本次审核，字段草稿仍保留。'; }
 function revert() { actionEpoch++; saving.value = false; importing.value = false; loadDraft(view.value.rules); invalidatePreview(); localError.value = ''; notice.value = '已放弃当前规则草稿。'; }
-function requestImport() { importProfile = profileKey.value; fileInput.value?.click(); }
-async function importRules(event:Event) {
-  const input = event.target as HTMLInputElement, file = input.files?.[0]; input.value = '';
-  if (!file) return;
-  const key = importProfile, epoch = actionEpoch;
-  importing.value = true; localError.value = '';
-  try {
-    if (!key || key !== profileKey.value) throw Error('文件选择期间角色已切换，请在当前角色重新导入。');
-    if (file.size > 1500000) throw Error('规则文件过大。');
-    const value = JSON.parse(await file.text());
-    if (!alive || epoch !== actionEpoch || key !== profileKey.value) return;
-    if (!value.rules) throw Error('不是包含 rules 的规则备份。');
-    const checked = await runEngine('validateRules', value.rules);
-    if (!alive || epoch !== actionEpoch || key !== profileKey.value) return;
-    loadDraft(checked); dirty.value = true; invalidatePreview(); localError.value = ''; notice.value = '已载入规则草稿；检查后保存，才会应用到当前角色。';
-  } catch (error) { if (alive && epoch === actionEpoch) localError.value = error instanceof Error ? error.message : String(error); }
-  finally { if (alive && epoch === actionEpoch) importing.value = false; }
+function loadPreset(value:{name:string;rules:any}) {
+  if (!canEdit.value || saving.value || importing.value || view.value.busy) return;
+  actionEpoch++; invalidatePreview(); localError.value = '';
+  loadDraft({...clone(value.rules),presetName:value.name,initialChoice:''});
+  presetDraft.value = true; dirty.value = true;
+  notice.value = `已载入「${value.name}」草稿。保存时会审核整套替换；当前配置和聊天进度尚未改变。`;
 }
-async function exportRules() {
-  try { await runEngine('exportRules'); }
-  catch (error) { if (alive) localError.value = error instanceof Error ? error.message : String(error); }
+async function savePreset(name:string) {
+  if (!canEdit.value || saving.value || importing.value) return;
+  const key=draftProfile.value, epoch=actionEpoch;importing.value=true;localError.value='';
+  try {
+    await runEngine('saveRulePreset',name,assembledDraft(),key);
+    if (!alive || epoch!==actionEpoch || key!==profileKey.value) return;
+    await presetPanel.value?.refresh();
+    if (!alive || epoch!==actionEpoch || key!==profileKey.value) return;
+    notice.value='已将当前草稿另存为自建预设；当前角色配置和聊天进度未改变。';
+  } catch(error) {if(alive&&epoch===actionEpoch)localError.value=error instanceof Error?error.message:String(error)}
+  finally {if(alive&&epoch===actionEpoch)importing.value=false}
+}
+async function exportPreset(name:string) {
+  if (!canEdit.value || saving.value || importing.value) return;
+  localError.value='';
+  try {await runEngine('exportRulePreset',assembledDraft(),name,draftProfile.value)}
+  catch(error){if(alive)localError.value=error instanceof Error?error.message:String(error)}
 }
 async function saveOptions() {
   if (!canEdit.value || optionsSaving.value) return;
@@ -194,16 +201,14 @@ onBeforeUnmount(() => { alive = false; actionEpoch++; previewEpoch++; invalidate
       <div class="libei-actions libei-rule-actions">
         <button class="bbs-btn bbs-btn-primary" type="button" :disabled="!canEdit || view.busy || saving || importing" @click="save"><Icon name="check" />{{ saving ? '保存中…' : '保存规则' }}</button>
         <button class="bbs-btn" type="button" :disabled="saving" @click="revert">放弃修改</button>
-        <button class="bbs-btn" type="button" :disabled="!canEdit" @click="exportRules"><Icon name="download" />导出规则</button>
-        <button class="bbs-btn" type="button" :disabled="!canEdit || saving || importing" @click="requestImport">导入规则</button>
-        <input ref="fileInput" type="file" accept=".json,application/json" hidden aria-label="导入当前角色规则" @change="importRules" />
+
       </div>
-      <p class="libei-hint">导出的是当前已保存规则，不包含未保存草稿。导入仅载入草稿，不会立即覆盖当前角色。</p>
+      <RulePresets ref="presetPanel" :profile-key="draftProfile" :rules="draft" :disabled="!canEdit || saving || importing || view.busy" @load="loadPreset" @save-library="savePreset" @export="exportPreset" />
       <section v-if="schemaReview" class="libei-schema-review" data-schema-review aria-label="字段变更审核">
-        <h3>审核字段变更</h3><p class="libei-hint">{{ schemaReview.summary }}</p>
-        <p class="libei-hint">此次确认只保存字段配置与初值，不会改写旧楼层。新增默认值先在内存中使用，下次正常更新或手动写入当前字段时才保存；不兼容旧值会明确阻止更新。</p>
+        <h3>{{ schemaReview.kind === 'preset' ? '审核预设替换' : '审核字段变更' }}</h3><p class="libei-hint">{{ schemaReview.summary }}</p>
+        <p class="libei-hint">{{ schemaReview.kind === 'preset' ? '确认切换后当前状态全部留空，不把旧状态或黎北开场数值带入。点击手动生成后才建立当前状态；旧快照保留。' : '此次确认只保存字段配置与初值，不会改写旧楼层。新增默认值先在内存中使用，下次正常更新或手动写入当前字段时才保存；不兼容旧值会明确阻止更新。' }}</p>
         <ol class="libei-schema-changes"><li v-for="(change,index) in schemaReview.changes" :key="index"><strong>{{ change.kind }}</strong><pre class="libei-preview-text">{{ JSON.stringify(change,null,2) }}</pre></li></ol>
-        <div class="libei-actions"><button class="bbs-btn bbs-btn-primary" type="button" data-action="confirm-schema" :disabled="saving || importing || view.busy || !canEdit" @click="confirmSchemaSave">确认保存字段配置</button><button class="bbs-btn" type="button" data-action="cancel-schema" :disabled="saving" @click="cancelSchemaSave">取消审核，保留草稿</button></div>
+        <div class="libei-actions"><button class="bbs-btn bbs-btn-primary" type="button" data-action="confirm-schema" :disabled="saving || importing || view.busy || !canEdit" @click="confirmSchemaSave">{{ schemaReview.kind === 'preset' ? '确认应用此预设' : '确认保存字段配置' }}</button><button class="bbs-btn" type="button" data-action="cancel-schema" :disabled="saving" @click="cancelSchemaSave">取消审核，保留草稿</button></div>
       </section>
       <fieldset class="libei-rule-fields" :disabled="!canEdit || saving || importing">
         <legend class="libei-sr-only">当前角色规则草稿</legend>

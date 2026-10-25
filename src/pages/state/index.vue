@@ -29,15 +29,16 @@ onBeforeUnmount(() => { alive = false; });
 <template>
   <section class="libei-state-page">
     <div class="bbs-section-head"><h2 class="bbs-title bbs-title-sub">当前状态</h2><span class="libei-badge">{{ view.writerReady ? '可写' : '只读' }}</span></div>
-    <p class="libei-subtitle">{{ view.cardName || '当前角色' }} · {{ view.floor >= 0 ? `第 ${view.floor} 楼` : '等待聊天' }} · 待结算 {{ view.pending.length }} 楼</p>
+    <p class="libei-subtitle">{{ view.cardName || '当前角色' }} · {{ view.floor >= 0 ? `第 ${view.floor} 楼` : '等待聊天' }} · {{ view.awaitingPresetGeneration ? '新预设待手动生成' : `待结算 ${view.pending.length} 楼` }}</p>
     <p v-if="view.error || operationError" class="libei-error" role="alert">{{ operationError || view.error }}</p>
     <div class="libei-floor-tools"><BbsSelect v-model="selected" :options="options" aria-label="查看状态楼层" /><button class="bbs-btn" type="button" @click="act('refresh')"><Icon name="refresh" />刷新</button></div>
-    <div class="libei-actions"><button class="bbs-btn bbs-btn-primary" :disabled="!view.canUpdate" @click="act('update')"><Icon name="refresh" />手动更新 / 重算末楼</button><button v-if="view.busy" class="bbs-btn" @click="act('cancel')">取消请求</button></div>
+    <div class="libei-actions"><button class="bbs-btn bbs-btn-primary" :disabled="view.awaitingPresetGeneration ? (!view.writerReady || view.busy || view.generating || selected !== 'latest' || view.floor !== view.latest) : !view.canUpdate" @click="view.awaitingPresetGeneration ? act('generatePresetState',view.profileKey) : act('update')"><Icon name="refresh" />{{ view.awaitingPresetGeneration ? '手动生成当前状态' : '手动更新 / 重算末楼' }}</button><button v-if="view.busy" class="bbs-btn" @click="act('cancel')">取消请求</button></div>
     <p class="libei-status" :class="{ 'libei-error': view.statusError }" role="status">{{ view.status }}</p>
     <p v-if="localError" class="libei-error" role="alert">{{ localError }}</p><p v-if="notice" class="libei-status" role="status">{{ notice }}</p>
     <p v-if="view.fieldStateError" class="libei-error" role="alert">{{ view.fieldStateError }} 旧值没有被转换或覆盖，请先核对字段类型与约束。</p>
     <p v-if="view.state && stateSchema" class="libei-status">{{ selected === 'latest' ? '当前显示按字段定义补齐的内存视图，缺失默认值会在下次正常更新或手动写入当前字段时保存。' : '按此历史楼层保存的字段定义显示，只读，不套用新字段配置。' }} 隐藏和停用不会删除原始值。</p>
-    <SchemaStateView v-if="view.state && stateSchema" :key="identityToken()" :state="view.state" :schema="stateSchema" :editable="manualEditable" :saving="manualBusy" @apply="setFieldValue" />
+    <p v-if="view.awaitingPresetGeneration" class="libei-status" data-awaiting-preset>{{ selected === 'latest' ? '已切换预设，当前各项留空；旧状态不再注入正文。点击手动生成后，才按新预设和当前剧情建立状态。' : '这里是保留的旧快照。新预设尚未生成；切回“跟随最新状态”后可手动生成。' }}</p>
+    <SchemaStateView v-if="stateSchema && (view.state || (view.awaitingPresetGeneration && selected === 'latest'))" :key="identityToken()" :state="view.state || {}" :schema="stateSchema" :awaiting-generation="view.awaitingPresetGeneration && selected === 'latest'" :editable="manualEditable" :saving="manualBusy" @apply="setFieldValue" />
     <StatusOverview v-else-if="view.state" :value="view.state" :name="view.protagonistName || view.cardName || '主角'" />
     <div v-else class="bbs-empty">{{ view.rules?.initialChoice ? '所选楼层尚无匹配快照。请先打开当前角色聊天，或手动补算待结算楼层。' : '请先在“变量规则”中手动选择初值方案；选择前不会初始化新聊天。' }}</div>
     <Collapsible title="本次更新明细" :open="false"><pre class="libei-code">{{ view.lastPatch || '尚无请求。' }}</pre></Collapsible>

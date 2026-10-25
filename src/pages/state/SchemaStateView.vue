@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import StateTree from './StateTree.vue';
 
-const props = defineProps<{ state:any; schema:any; editable?:boolean; saving?:boolean }>();
+const props = defineProps<{ state:any; schema:any; editable?:boolean; saving?:boolean; awaitingGeneration?:boolean }>();
 const emit = defineEmits<{ (event:'apply', fieldId:string, value:any):void }>();
 const emptyDrafts = ():Record<string,string> => Object.create(null);
 const rawDrafts = ref<Record<string,string>>(emptyDrafts()), errors = ref<Record<string,string>>(emptyDrafts());
@@ -19,6 +19,7 @@ const groups = computed(() => {
 });
 watch([() => JSON.stringify(props.state), () => JSON.stringify(props.schema), () => props.editable], () => { rawDrafts.value = emptyDrafts(); errors.value = emptyDrafts(); });
 function valueAt(field:any):any {
+  if (props.awaitingGeneration) return undefined;
   let value = props.state;
   for (const part of Array.isArray(field.path) ? field.path : []) {
     if (!value || typeof value !== 'object' || !Object.hasOwn(value,part)) return undefined;
@@ -27,7 +28,7 @@ function valueAt(field:any):any {
   return value;
 }
 function complex(value:any) { return value !== null && typeof value === 'object'; }
-function display(value:any):string { return value === undefined ? '未记录' : value === null ? '空值' : value === true ? '是' : value === false ? '否' : value === '' ? '空文字' : String(value); }
+function display(value:any):string { if (props.awaitingGeneration) return '—'; return value === undefined ? '未记录' : value === null ? '空值' : value === true ? '是' : value === false ? '否' : value === '' ? '空文字' : String(value); }
 function manual(field:any) { return field.updateMode === 'manual' && !['date','time','money','energy','formula'].includes(field.system); }
 function raw(field:any):string {
   if (Object.hasOwn(rawDrafts.value,field.id)) return rawDrafts.value[field.id];
@@ -70,7 +71,7 @@ function apply(field:any) {
           <dt><strong>{{ field.label || field.id }}</strong></dt>
           <dd>
             <StateTree v-if="complex(valueAt(field))" :value="valueAt(field)" />
-            <p v-else class="libei-state-scalar">{{ display(valueAt(field)) }}</p>
+            <p v-else class="libei-state-scalar" :aria-label="awaitingGeneration ? '尚未生成' : undefined">{{ display(valueAt(field)) }}</p>
             <details v-if="manual(field) && editable" class="libei-manual-editor" :data-manual-field="field.id">
               <summary>手动修改{{ field.label }}</summary>
               <div class="libei-manual-body">
@@ -85,12 +86,12 @@ function apply(field:any) {
                 <button class="bbs-btn" type="button" data-action="apply-field" :disabled="saving || !editable" :aria-label="'应用' + field.label + '新值'" @click="apply(field)">{{ saving ? '正在写入…' : '应用此值' }}</button>
               </div>
             </details>
-            <p v-else-if="manual(field)" class="libei-state-hint">当前为只读视图。只有最新、可写、空闲且无待结算楼层的状态可以手动修改。</p>
+            <p v-else-if="manual(field) && !awaitingGeneration" class="libei-state-hint">当前为只读视图。只有最新、可写、空闲且无待结算楼层的状态可以手动修改。</p>
           </dd>
         </div>
       </dl>
     </section>
-    <details class="libei-state-raw"><summary>查看此楼层完整原始数据（含隐藏字段）</summary><StateTree :value="state" /></details>
+    <details v-if="!awaitingGeneration" class="libei-state-raw"><summary>查看此楼层完整原始数据（含隐藏字段）</summary><StateTree :value="state" /></details>
   </section>
 </template>
 

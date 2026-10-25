@@ -58,7 +58,7 @@ const checks = [];
     await click('新建初值');
     await input('[data-initial-id=custom-1] input', '新建回归方案');
     const initialText = await E("__root.querySelector('[data-initial-id=custom-1] textarea').value");
-    await input('[data-initial-id=custom-1] textarea', initialText.replace("'00:00'", "'04:00'").replace('钱财: 0', '钱财: 100'));
+    await input('[data-initial-id=custom-1] textarea', initialText.replace(/("时间":\s*"00:00"|'00:00')/, m => m.startsWith('"') ? '"时间": "04:00"' : "'04:00'").replace(/("钱财":\s*0\b|钱财: 0\b)/, m => m.startsWith('"') ? '"钱财": 100' : '钱财: 100'));
     await click('保存规则');
     await wait('__libeiV2App.api.snapshot().rules.initials.length===2');
     await check('Saving an initial does not select it or initialize a chat', async () => {

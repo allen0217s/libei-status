@@ -14,7 +14,7 @@ const normalize = value => JSON.parse(JSON.stringify(value));
 const fieldAt = (rules, path) => rules.fieldSchema.fields.find(field => JSON.stringify(field.path) === JSON.stringify(path));
 const checks = [];
 const test = (name, fn) => { fn(); checks.push(name); console.log('PASS ' + name); };
-const generic = C.defaultRules();
+const generic = C.libeiRules();
 const base = () => C.chooseInitial({...generic, initialChoice:'generic'}).state;
 const patch = (path, value) => [{op:'replace',path,value}];
 function presets(...states) {

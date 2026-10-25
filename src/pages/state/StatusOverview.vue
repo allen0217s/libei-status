@@ -11,11 +11,14 @@ const clothes = computed(() => record(person.value.穿着));
 const inventory = computed(() => Object.entries(record(person.value.随身物品)));
 const layers = [
   { key: '上装', number: '01', area: '肩胸', y: 106 },
-  { key: '内衬', number: '02', area: '腰腹', y: 150 },
-  { key: '下装', number: '03', area: '下身', y: 212 },
-  { key: '鞋履', number: '04', area: '足部', y: 316 },
+  { key: '下装', number: '02', area: '下身', y: 212 },
+  { key: '内裤', number: '03', area: '贴身', y: 170 },
+  { key: '鞋袜', number: '04', area: '足部', y: 316 },
 ];
-const annotations = computed(() => layers.map(layer => ({ ...layer, garment: record(clothes.value[layer.key]).衣物, coverage: record(clothes.value[layer.key]).遮露 })));
+const annotations = computed(() => layers.map(layer => {
+  const value=clothes.value[layer.key] ?? (layer.key==='鞋袜' ? clothes.value.鞋履 : undefined);
+  return {...layer,garment:typeof value==='string' ? value : record(value).衣物};
+}));
 </script>
 
 <template>
@@ -31,7 +34,7 @@ const annotations = computed(() => layers.map(layer => ({ ...layer, garment: rec
         <div><span class="libei-eyebrow">人物近况</span><h3>{{ name || '主角' }} <span>身体与衣着</span></h3></div>
         <dl class="libei-metrics">
           <div><dt>钱财</dt><dd>{{ text(person.钱财) }}</dd></div>
-          <div><dt>元精</dt><dd>{{ text(person.精液) }}</dd></div>
+          <div v-if="person.精液 !== undefined"><dt>元精</dt><dd>{{ text(person.精液) }}</dd></div>
         </dl>
       </header>
       <div class="libei-body-layout">
@@ -54,11 +57,10 @@ const annotations = computed(() => layers.map(layer => ({ ...layer, garment: rec
           <article v-for="layer in annotations" :key="layer.key" class="libei-annotation" :aria-label="`${layer.key}备注`">
             <header><span class="libei-number">{{ layer.number }}</span><h4>{{ layer.key }}</h4><span class="libei-area">{{ layer.area }}</span></header>
             <p class="libei-garment">{{ text(layer.garment) }}</p>
-            <p class="libei-coverage"><span>遮露</span>{{ text(layer.coverage) }}</p>
           </article>
         </div>
       </div>
-      <div class="libei-body-note"><span class="libei-note-label">身体近况</span><p>{{ text(person.阳具) }}</p></div>
+      <div v-if="person.阳具 !== undefined" class="libei-body-note"><span class="libei-note-label">身体近况</span><p>{{ text(person.阳具) }}</p></div>
       <details v-if="person.精液算式" class="libei-calculation"><summary>元精结算说明</summary><p>{{ text(person.精液算式) }}</p></details>
     </section>
 
@@ -92,7 +94,6 @@ const annotations = computed(() => layers.map(layer => ({ ...layer, garment: rec
 .libei-annotations{display:grid;min-width:0;align-content:start}.libei-annotation{padding:8px 0 9px;border-bottom:1px solid var(--bbs-line);min-width:0}.libei-annotation:first-child{padding-top:0}.libei-annotation:last-child{border-bottom:0;padding-bottom:0}
 .libei-annotation header{display:flex;gap:7px;align-items:center;margin-bottom:4px}.libei-number{display:inline-grid;place-items:center;min-width:23px;height:23px;border-radius:5px;background:var(--bbs-surface-2);color:var(--bbs-ink-soft);font:600 10px var(--bbs-font-mono)}
 .libei-annotation h4{font-size:13px;font-weight:600}.libei-area{margin-left:auto;color:var(--bbs-ink-soft);font-size:10px}.libei-garment{font-size:13px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
-.libei-coverage{margin-top:3px!important;font-size:12px;line-height:1.6;color:var(--bbs-ink-soft);white-space:pre-wrap;overflow-wrap:anywhere}.libei-coverage>span{display:inline-block;margin-right:6px;font-size:10px;border:1px solid var(--bbs-line);padding:0 4px;border-radius:3px}
 .libei-body-note{display:grid;grid-template-columns:60px minmax(0,1fr);gap:10px;border-top:1px solid var(--bbs-line);background:var(--bbs-surface-2);padding:10px 16px}.libei-note-label{font-size:11px;color:var(--bbs-ink-soft)}.libei-body-note p{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 .libei-calculation{padding:8px 16px;border-top:1px solid var(--bbs-line);font-size:12px}.libei-calculation p{padding-top:6px;white-space:pre-wrap;overflow-wrap:anywhere}
 .libei-thought{border-left:3px solid var(--bbs-ink-soft);padding:2px 0 2px 12px}.libei-thought h3,.libei-inventory h3{font-size:12px;font-weight:600;color:var(--bbs-ink-soft)}.libei-thought p{font-size:13px;line-height:1.8;padding-top:4px;white-space:pre-wrap;overflow-wrap:anywhere}
