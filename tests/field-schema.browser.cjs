@@ -18,7 +18,7 @@ const checks = [];
     const row = id => `[data-field-id="${id}"]`;
     const control = (id,prop) => `${row(id)} [data-field-prop="${prop}"]`;
     const action = (id,name) => `${row(id)} [data-action="${name}"]`;
-    const open = async page => { await E(`__libeiV2App.open(${JSON.stringify(page)})`); await wait(`!!__root.querySelector('.libei-${page==='state'?'state':'rules'}-page')`); };
+    const open = async page => { await E(`__libeiV2App.open(${JSON.stringify(page)})`); await wait(page==='state' ? "!!__root.querySelector('.libei-state-page')" : `!!__root.querySelector('[data-editor-page=${page}]')`); };
     const fieldIds = () => E("[...__root.querySelectorAll('[data-field-id]')].map(el=>el.dataset.fieldId)");
     const changeType = async (id,type) => {
       await select(control(id,'type'),type);
@@ -270,15 +270,17 @@ const checks = [];
       assert.equal(await E("JSON.parse([...__memory.entries()].find(([key])=>key.includes(':chat:field-type.png:field-type-chat'))[1]).nodes[0].state.主角.想法"),'未记录');
       await switchRole('字段回归','field-ui.png','field-ui-chat','__fieldChat');await open('rules');
     });
-    await check('Merged preview keeps schema projections inline with existing seven rule editors',async()=>{
+    await open('context');
+    await check('Context page previews field definitions as readonly alongside its seven rule editors',async()=>{
       const before=await memory(), count=await calls();
       await click('预览当前草稿');
-      await wait("!!__root.querySelector('[data-field-schema-editor] [data-projection=\"update:fields\"]')");
+      await wait("!!__root.querySelector('[data-context-readonly=\"update:fields\"]')");
       assert.equal(await E("__root.querySelectorAll('[data-rule-field]').length"),7);
-      assert.equal(await E("__root.querySelectorAll('[data-context-readonly=\"update:fields\"]').length"),0);
+      assert.equal(await E("__root.querySelectorAll('[data-context-readonly=\"update:fields\"]').length"),1);
       assert.equal(await E("__root.querySelectorAll('.libei-context-editor,.libei-preview').length"),0);
       assert.equal(await memory(),before); assert.equal(await calls(),count);
     });
+    await open('rules');
     await E(`__root.querySelector('[data-field-id="${manualId}"]').open=true;__root.querySelector('[data-field-id="${manualId}"]').scrollIntoView({block:'start'})`);
     await screenshot('30-field-editor-desktop.png');
     await open('state');

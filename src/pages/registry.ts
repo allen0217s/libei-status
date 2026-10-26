@@ -13,6 +13,7 @@ export interface PageDef {
 export const PAGES: PageDef[] = [
   { id: 'state', label: '当前状态', component: State },
   { id: 'rules', label: '变量规则', component: Rules },
+  { id: 'context', label: '上下文', component: Rules },
   { id: 'settings', label: '设置', component: Settings },
 ];
 

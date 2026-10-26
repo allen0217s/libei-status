@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { ui } from '@/state/ui';
 import Icon from '@/components/Icon.vue';
 import BbsSelect from '@/components/BbsSelect.vue';
 import Collapsible from '@/components/Collapsible.vue';
@@ -8,6 +9,12 @@ import WorldbookReferences from './WorldbookReferences.vue';
 import RulePresets from './RulePresets.vue';
 import { engineView as view, runEngine } from '@/state/engine';
 
+defineOptions({name:'RuleEditor'});
+const isContext = computed(() => ui.activePage === 'context');
+const variableKeys = ['protagonistName','presetName','fieldSchema','initials','initialChoice'] as const;
+const contextKeys = ['systemPrompt','updateRules','numericConfig','outputFormat','snapshotTemplate','storyInstruction','worldbookReferences'] as const;
+const variablesDirty = ref(false), contextDirty = ref(false);
+const pageDirty = computed(() => isContext.value ? contextDirty.value : variablesDirty.value);
 interface ContextEntry { id: string; title: string; content: string; editable: boolean; field?: string; role?: string }
 interface ContextPreview {
   available: boolean; reason: string; targetId: number;
@@ -38,24 +45,37 @@ const entries = [
 const addCommon = ref(false);
 const visibleEntries = computed(() => entries.filter(entry => entry.field !== 'updateRules' || !!draft.value?.updateRules || addCommon.value));
 const initials = computed<Array<{id:string;label:string;text:string}>>(() => Array.isArray(draft.value?.initials) ? draft.value.initials : []);
-const initialOptions = computed(() => [{ value:'', label:'请选择初值方案' }, ...initials.value.map(item => ({value:item.id,label:item.label || item.id}))]);
+const initialOptions = computed(() => [{ value:'', label:'无初值（留空，稍后可手动生成）' }, ...initials.value.map(item => ({value:item.id,label:item.label || item.id}))]);
 const canEdit = computed(() => !!draft.value && !!profileKey.value && draftProfile.value === profileKey.value);
 const newInitialId = ref('');
 const previewEntries = computed(() => [
   ...(preview.value?.update?.entries || []).map(entry => ({ ...entry, source:'插件模型', key:'update:' + entry.id })),
   ...(preview.value?.story?.entries || []).map(entry => ({ ...entry, source:'正文模型', key:'story:' + entry.id })),
 ]);
-const readOnlyEntries = computed(() => previewEntries.value.filter(entry => entry.field !== 'fieldSchema' && entry.field !== 'worldbookReferences' && !entries.some(item => item.field === entry.field)));
+const updateCharacters = computed(() => (preview.value?.update.messages || []).reduce((sum,item) => sum + Array.from(item.content).length,0));
+const storyCharacters = computed(() => Array.from(preview.value?.story.content || '').length);
+function contextOrigin(entry:ContextEntry) {
+  if (entry.field === 'fieldSchema') return '变量规则页维护';
+  if (entry.field === 'worldbookReferences') return '引用选择可编辑，原文只读';
+  return entry.editable ? '上下文页可编辑' : '只读：程序规则或当前资料';
+}
+const readOnlyEntries = computed(() => previewEntries.value.filter(entry => entry.field !== 'worldbookReferences' && !entries.some(item => item.field === entry.field)));
 function fieldPreviews(field:string) { return previewEntries.value.filter(entry => entry.field === field); }
 function fieldSource(field:string) { return field === 'numericConfig' ? numericText.value : draft.value?.[field]; }
 async function addInitial() {
   if (!canEdit.value || saving.value || importing.value || initials.value.length >= 20) return;
   const source = initials.value.find(initial => initial.id === draft.value.initialChoice) || initials.value[0];
-  if (!source) return;
+  const key = draftProfile.value, epoch = actionEpoch;
+  let text = source?.text;
+  if (text === undefined) {
+    try { text = await runEngine('initialTemplate',draft.value.fieldSchema,key) as string; }
+    catch (error) { if (alive && key === profileKey.value) localError.value = error instanceof Error ? error.message : String(error); return; }
+    if (!alive || key !== profileKey.value || epoch !== actionEpoch || initials.value.length >= 20) return;
+  }
   let number = 1;
   while (initials.value.some(initial => initial.id === 'custom-' + number)) number++;
-  const id = 'custom-' + number, key = draftProfile.value;
-  draft.value.initials.push({ id, label:'新初值 ' + number, text:source.text });
+  const id = 'custom-' + number;
+  draft.value.initials.push({ id, label:'新初值 ' + number, text });
   newInitialId.value = id;
   localError.value = '';
   notice.value = '已新建初值草稿。请修改名称和 YAML，保存规则后再按需选用；已有进度不会重置。';
@@ -75,10 +95,18 @@ function loadDraft(value:any) {
   draft.value = clone(value);
   if (draft.value) for (const field of ['protagonistName','systemPrompt','storyInstruction']) if (typeof draft.value[field] !== 'string') draft.value[field] = '';
   numericText.value = draft.value?.numericConfig ? JSON.stringify(draft.value.numericConfig, null, 2) : '{}';
-  dirty.value = false;
+  dirty.value = false; variablesDirty.value = false; contextDirty.value = false;
   loadingDraft = false;
 }
-function markDirty() { if (loadingDraft) return; dirty.value = true; notice.value = ''; invalidatePreview(); invalidateSchemaReview(); }
+function markDirty() { if (loadingDraft) return; if (isContext.value) contextDirty.value = true; else variablesDirty.value = true; dirty.value = true; notice.value = ''; invalidatePreview(); invalidateSchemaReview(); }
+function syncSaved(context:boolean) {
+  loadingDraft = true; invalidateSchemaReview();
+  for (const key of context ? contextKeys : variableKeys) draft.value[key] = clone(view.value.rules[key]);
+  if (context) { numericText.value = JSON.stringify(view.value.rules.numericConfig,null,2); contextDirty.value = false; }
+  else { variablesDirty.value = false; presetDraft.value = false; }
+  dirty.value = variablesDirty.value || contextDirty.value;
+  loadingDraft = false;
+}
 watch(draft, markDirty, {deep:true,flush:'sync'});
 watch(numericText, markDirty, {flush:'sync'});
 watch(optionsDraft, () => { if (!loadingDraft) { optionsDirty.value = true; invalidateSchemaReview(); } }, {deep:true,flush:'sync'});
@@ -96,21 +124,25 @@ watch(() => view.value.config, value => {
   loadingDraft = true; optionsDraft.value = clone(value) || {}; loadingDraft = false;
 });
 watch([() => view.value.floor, () => view.value.selection, () => view.value.chatId], () => { invalidatePreview(); invalidateSchemaReview(); });
-function assembledDraft() {
+function assembledDraft(scope:'all'|'variables'|'context' = 'all') {
   if (!canEdit.value) throw Error('角色已切换或尚未就绪，请使用当前角色的规则。');
-  fieldEditor.value?.validate();
-  let config:unknown;
-  try { config = JSON.parse(numericText.value); } catch { throw Error('程序计算参数不是合法 JSON，草稿已保留。'); }
-  if (!config || typeof config !== 'object' || Array.isArray(config)) throw Error('程序计算参数必须是 JSON 对象。');
-  return { ...clone(draft.value), numericConfig:config };
+  if (scope !== 'context') fieldEditor.value?.validate();
+  const value = scope === 'all' ? clone(draft.value) : {...clone(view.value.rules),...Object.fromEntries((scope === 'context' ? contextKeys : variableKeys).map(key => [key,clone(draft.value[key])]))};
+  if (scope !== 'variables') {
+    let config:unknown;
+    try { config = JSON.parse(numericText.value); } catch { throw Error('程序计算参数不是合法 JSON，草稿已保留。'); }
+    if (!config || typeof config !== 'object' || Array.isArray(config)) throw Error('程序计算参数必须是 JSON 对象。');
+    value.numericConfig = config;
+  }
+  return value;
 }
 async function save() {
   if (saving.value || importing.value) return;
-  const key = draftProfile.value, epoch = actionEpoch;
+  const key = draftProfile.value, epoch = actionEpoch, context = isContext.value;
   localError.value = ''; saving.value = true;
   try {
-    const value = assembledDraft();
-    if (presetDraft.value || JSON.stringify(value.fieldSchema ?? null) !== JSON.stringify(view.value.rules?.fieldSchema ?? null)) {
+    const value = assembledDraft(context ? 'context' : 'variables');
+    if (!context && (presetDraft.value || JSON.stringify(value.fieldSchema ?? null) !== JSON.stringify(view.value.rules?.fieldSchema ?? null))) {
       invalidateSchemaReview();
       const reviewEpoch = schemaReviewEpoch;
       const kind = presetDraft.value ? 'preset' : 'fields';
@@ -122,7 +154,7 @@ async function save() {
     }
     await runEngine('saveRules', value, key);
     if (!alive || epoch !== actionEpoch || key !== profileKey.value) return;
-    loadDraft(view.value.rules); invalidatePreview(); notice.value = '当前角色规则已保存，已有进度未重置。';
+    syncSaved(context); invalidatePreview(); notice.value = context ? '上下文已保存，变量页草稿保留，已有进度未重置。' : '变量规则已保存，上下文草稿保留，已有进度未重置。';
   } catch (error) { if (alive && epoch === actionEpoch && key === profileKey.value) localError.value = error instanceof Error ? error.message : String(error); }
   finally { if (alive && epoch === actionEpoch) saving.value = false; }
 }
@@ -132,23 +164,25 @@ async function confirmSchemaSave() {
   const key = draftProfile.value, epoch = actionEpoch;
   saving.value = true; localError.value = '';
   try {
-    await runEngine(plan.kind === 'preset' ? 'commitRulePreset' : 'commitRulesChange', plan.planId);
+    const result = await runEngine(plan.kind === 'preset' ? 'commitRulePreset' : 'commitRulesChange', plan.planId);
     if (!alive || epoch !== actionEpoch || key !== profileKey.value) return;
-    loadDraft(view.value.rules); invalidatePreview();
-    notice.value = plan.kind === 'preset' ? '预设已应用，当前状态留空。请到“当前状态”点击手动生成；旧快照仍保留。' : '字段配置已保存，旧楼层没有改写。缺失字段按默认值在内存中补齐，下次正常更新或手动写入当前字段时才保存。';
+    syncSaved(false); invalidatePreview();
+    notice.value = plan.kind === 'preset' ? (result?.initialized ? '预设已应用，已使用所选初值建立当前状态；旧快照仍保留。' : '预设已应用，选择无初值，当前状态留空；可到“当前状态”手动生成，旧快照仍保留。') : '字段配置已保存，旧楼层没有改写。缺失字段按默认值在内存中补齐，下次正常更新或手动写入当前字段时才保存。';
   } catch (error) {
     if (alive && epoch === actionEpoch && key === profileKey.value) { invalidateSchemaReview(); localError.value = error instanceof Error ? error.message : String(error); }
   } finally { if (alive && epoch === actionEpoch) saving.value = false; }
 }
 function cancelSchemaSave() { invalidateSchemaReview(); notice.value = '已取消本次审核，字段草稿仍保留。'; }
-function revert() { actionEpoch++; saving.value = false; importing.value = false; loadDraft(view.value.rules); invalidatePreview(); localError.value = ''; notice.value = '已放弃当前规则草稿。'; }
+function revert() { actionEpoch++; saving.value = false; importing.value = false; syncSaved(isContext.value); invalidatePreview(); localError.value = ''; notice.value = '已放弃当前页面草稿，另一页未保存编辑保留。'; }
 function loadPreset(value:{name:string;rules:any}) {
   if (!canEdit.value || saving.value || importing.value || view.value.busy) return;
   actionEpoch++; invalidatePreview(); localError.value = '';
   draft.value.fieldSchema = clone(value.rules.fieldSchema);
+  draft.value.initials = clone(value.rules.initials || []);
+  draft.value.initialChoice = '';
   draft.value.presetName = value.name;
   presetDraft.value = true; dirty.value = true;
-  notice.value = `已载入「${value.name}」的字段草稿，其他配置保留。保存时会审核应用；当前配置和聊天进度尚未改变。`;
+  notice.value = `已载入「${value.name}」的字段与初值方案草稿，默认无初值；其他配置保留。保存时会审核应用；当前配置和聊天进度尚未改变。`;
 }
 async function savePreset(name:string) {
   if (!canEdit.value || saving.value || importing.value) return;
@@ -193,43 +227,46 @@ onBeforeUnmount(() => { alive = false; actionEpoch++; previewEpoch++; invalidate
 </script>
 
 <template>
-  <section ref="rulesRoot" class="libei-rules-page">
-    <div class="bbs-section-head"><h2 class="bbs-title bbs-title-sub">变量规则</h2><span class="libei-hint">{{ dirty ? '有未保存修改' : '已保存' }}</span></div>
-    <p class="libei-hint libei-profile">当前角色：<strong>{{ cardName }}</strong> · 规则按角色分别保存，保存不会重置已有状态。</p>
+  <section ref="rulesRoot" class="libei-rules-page" :class="{'libei-context-page':isContext}" :data-editor-page="isContext ? 'context' : 'rules'">
+    <div class="bbs-section-head"><h2 class="bbs-title bbs-title-sub">{{ isContext ? '上下文' : '变量规则' }}</h2><span class="libei-hint">{{ pageDirty ? '有未保存修改' : '已保存' }}</span></div>
+    <p class="libei-hint libei-profile">当前角色：<strong>{{ cardName }}</strong> · 两页按角色独立保存草稿；切页保留编辑，保存仅应用当前页。应用预设需单独审核。</p>
     <p v-if="notice" class="libei-notice" role="status">{{ notice }}</p>
     <p v-if="localError" class="libei-error" role="alert">{{ localError }}</p>
     <template v-if="draft">
+        <label v-show="!isContext" class="libei-field"><span>主角称呼</span><input v-model="draft.protagonistName" :disabled="!canEdit || saving || importing || view.busy" class="bbs-input" type="text" maxlength="120" :placeholder="view.cardName || '留空使用当前角色卡名'" /><small class="libei-hint">留空使用当前角色卡名，不改变角色隔离标识。</small></label>
       <div class="libei-actions libei-rule-actions">
-        <button class="bbs-btn bbs-btn-primary" type="button" :disabled="!canEdit || view.busy || saving || importing" @click="save"><Icon name="check" />{{ saving ? '保存中…' : '保存规则' }}</button>
+        <button class="bbs-btn bbs-btn-primary" type="button" :disabled="!canEdit || view.busy || saving || importing" @click="save"><Icon name="check" />{{ saving ? '保存中…' : isContext ? '保存上下文' : '保存规则' }}</button>
         <button class="bbs-btn" type="button" :disabled="saving" @click="revert">放弃修改</button>
 
       </div>
-      <RulePresets ref="presetPanel" :profile-key="draftProfile" :rules="draft" :disabled="!canEdit || saving || importing || view.busy" :export-text="exportPreset" @load="loadPreset" @save-library="savePreset" />
-      <section v-if="schemaReview" class="libei-schema-review" data-schema-review aria-label="字段变更审核">
-        <h3>{{ schemaReview.kind === 'preset' ? '审核预设替换' : '审核字段变更' }}</h3><p class="libei-hint">{{ schemaReview.summary }}</p>
-        <p class="libei-hint">{{ schemaReview.kind === 'preset' ? '确认切换后当前状态全部留空，不把旧状态或黎北开场数值带入。点击手动生成后才建立当前状态；旧快照保留。' : '此次确认只保存字段配置与初值，不会改写旧楼层。新增默认值先在内存中使用，下次正常更新或手动写入当前字段时才保存；不兼容旧值会明确阻止更新。' }}</p>
-        <ol class="libei-schema-changes"><li v-for="(change,index) in schemaReview.changes" :key="index"><strong>{{ change.kind }}</strong><pre class="libei-preview-text">{{ JSON.stringify(change,null,2) }}</pre></li></ol>
-        <div class="libei-actions"><button class="bbs-btn bbs-btn-primary" type="button" data-action="confirm-schema" :disabled="saving || importing || view.busy || !canEdit" @click="confirmSchemaSave">{{ schemaReview.kind === 'preset' ? '确认应用此预设' : '确认保存字段配置' }}</button><button class="bbs-btn" type="button" data-action="cancel-schema" :disabled="saving" @click="cancelSchemaSave">取消审核，保留草稿</button></div>
-      </section>
-      <fieldset class="libei-rule-fields" :disabled="!canEdit || saving || importing">
-        <legend class="libei-sr-only">当前角色规则草稿</legend>
-        <label class="libei-field"><span>主角称呼</span><input v-model="draft.protagonistName" class="bbs-input" type="text" maxlength="120" :placeholder="view.cardName || '留空使用当前角色卡名'" /><small class="libei-hint">留空使用当前角色卡名，不改变角色隔离标识。</small></label>
-        <FieldSchemaEditor v-if="draft.fieldSchema" ref="fieldEditor" v-model="draft.fieldSchema" :disabled="!canEdit || saving || importing" @draft-change="markDirty">
-          <template #preview><details v-for="rendered in fieldPreviews('fieldSchema')" :key="rendered.key" class="libei-preview-entry" :data-projection="rendered.key"><summary>{{ rendered.source }} · 字段定义组装结果（只读）</summary><div class="libei-entry-body"><pre class="libei-preview-text">{{ rendered.content }}</pre></div></details></template>
-        </FieldSchemaEditor>
-        <p v-else class="libei-hint">当前为旧版规则，尚无字段定义。初值与原有规则仍可按下方方式编辑。</p>
+      <RulePresets v-show="!isContext" ref="presetPanel" :profile-key="draftProfile" :rules="draft" :disabled="!canEdit || saving || importing || view.busy" :export-text="exportPreset" @load="loadPreset" @save-library="savePreset">
+        <template #initials><fieldset class="libei-rule-fields" :disabled="!canEdit || saving || importing || view.busy">
         <section class="libei-initials" aria-label="变量初值">
-          <div class="libei-initial-head"><h3>变量初值</h3><button class="bbs-btn" type="button" :disabled="initials.length >= 20" @click="addInitial">新建初值</button></div>
-          <p class="libei-hint">{{ initials.length }} / 20 个方案 · 新建时复制当前选中方案，未选择时复制第一个方案；不会自动选用。{{ initials.length >= 20 ? '已达方案上限。' : '' }}</p>
-          <label class="libei-field"><span>新聊天初值方案</span><BbsSelect v-model="draft.initialChoice" :options="initialOptions" aria-label="新聊天初值方案" /></label>
-          <p class="libei-hint">手动选择，不按开场文字猜测；未选择前不初始化新聊天。下方 YAML 是每个方案的高级初值覆写，字段类型与写入权限仍受字段定义约束。</p>
+          <div class="libei-initial-head"><h3>预设初值方案</h3><button class="bbs-btn" type="button" :disabled="initials.length >= 20" @click="addInitial">新建初值</button></div>
+          <p class="libei-hint">{{ initials.length }} / 20 个方案 · 新建时复制当前选中方案，无选择时复制第一个方案；没有方案时按字段默认值创建；不会自动选用。{{ initials.length >= 20 ? '已达方案上限。' : '' }}</p>
+          <label class="libei-field"><span>预设初值方案</span><BbsSelect v-model="draft.initialChoice" :options="initialOptions" aria-label="预设初值方案" /></label>
+          <p class="libei-hint">载入预设后可选择一套初值，或选择“无初值”。确认应用预设时才生效；修改已保存配置不会重置现有进度。下方 YAML 是每个方案的高级初值覆写，字段类型与写入权限仍受字段定义约束。</p>
           <details v-for="(initial, index) in initials" :key="initial.id" class="libei-rule-entry" :data-initial-id="initial.id" :open="initial.id === newInitialId">
             <summary><span class="libei-entry-title">{{ initial.label || `初值 ${index + 1}` }}</span><span class="libei-entry-tag">YAML</span></summary>
             <div class="libei-entry-body"><label class="libei-field"><span>初值名称</span><input v-model="initial.label" class="bbs-input" type="text" /></label><label class="libei-field"><span>{{ initial.label || '变量初值' }} · YAML</span><textarea v-model="initial.text" class="bbs-input libei-editor" rows="12" spellcheck="false" :aria-label="`初值YAML ${index + 1}`" /></label></div>
           </details>
-        </section>
+        </section></fieldset></template>
+      </RulePresets>
+      <section v-if="schemaReview" v-show="!isContext" class="libei-schema-review" data-schema-review aria-label="字段变更审核">
+        <h3>{{ schemaReview.kind === 'preset' ? '审核预设替换' : '审核字段变更' }}</h3><p class="libei-hint">{{ schemaReview.summary }}</p>
+        <p class="libei-hint">{{ schemaReview.kind === 'preset' ? '选择了初值时直接建立当前状态；无初值则留空，可手动按剧情生成。旧快照保留，不继承旧状态。' : '此次确认只保存字段配置与初值，不会改写旧楼层。新增默认值先在内存中使用，下次正常更新或手动写入当前字段时才保存；不兼容旧值会明确阻止更新。' }}</p>
+        <ol class="libei-schema-changes"><li v-for="(change,index) in schemaReview.changes" :key="index"><strong>{{ change.kind }}</strong><pre class="libei-preview-text">{{ JSON.stringify(change,null,2) }}</pre></li></ol>
+        <div class="libei-actions"><button class="bbs-btn bbs-btn-primary" type="button" data-action="confirm-schema" :disabled="saving || importing || view.busy || !canEdit" @click="confirmSchemaSave">{{ schemaReview.kind === 'preset' ? '确认应用此预设' : '确认保存字段配置' }}</button><button class="bbs-btn" type="button" data-action="cancel-schema" :disabled="saving" @click="cancelSchemaSave">取消审核，保留草稿</button></div>
+      </section>
+      <fieldset v-show="!isContext" class="libei-rule-fields" :disabled="!canEdit || saving || importing">
+        <legend class="libei-sr-only">当前角色规则草稿</legend>
+        <FieldSchemaEditor v-if="draft.fieldSchema" ref="fieldEditor" v-model="draft.fieldSchema" :disabled="!canEdit || saving || importing" @draft-change="markDirty">
+          <template #preview><details v-for="rendered in fieldPreviews('fieldSchema')" :key="rendered.key" class="libei-preview-entry" :data-projection="rendered.key"><summary>{{ rendered.source }} · 字段定义组装结果（只读）</summary><div class="libei-entry-body"><pre class="libei-preview-text">{{ rendered.content }}</pre></div></details></template>
+        </FieldSchemaEditor>
+        <p v-else class="libei-hint">当前为旧版规则，尚无字段定义。初值与原有规则仍可按下方方式编辑。</p>
+
       </fieldset>
-      <fieldset class="libei-rule-fields" :disabled="!canEdit || saving || importing">
+      <fieldset v-show="isContext" class="libei-rule-fields" :disabled="!canEdit || saving || importing">
         <legend class="libei-sr-only">上下文条目与预览</legend>
         <section class="libei-context-region" :aria-busy="previewBusy" aria-label="上下文条目与预览">
           <h3>上下文 · 查看与编辑</h3>
@@ -242,6 +279,14 @@ onBeforeUnmount(() => { alive = false; actionEpoch++; previewEpoch++; invalidate
             <p v-if="preview.reason" class="libei-hint">{{ preview.reason }}</p>
             <p v-if="!preview.available" class="libei-hint">当前仅供检查草稿结构，不代表已有可发送的完整请求。请先处理上述原因。</p>
             <p class="libei-hint">{{ preview.update?.worldbookStatus }}</p>
+            <details class="libei-context-composition" data-context-composition>
+              <summary>上下文组成 · 插件更新 {{ updateCharacters.toLocaleString() }} 字符 · 正文注入 {{ storyCharacters.toLocaleString() }} 字符</summary>
+              <p class="libei-hint">按本次草稿实际组装内容统计，包含空白；不是 token 数或费用。正文只统计本插件注入段，未计酒馆其他预设与历史。只读段不能在这里改写。</p>
+              <ol class="libei-context-list"><li v-for="entry in previewEntries" :key="entry.key" class="libei-context-module" :data-context-module="entry.key">
+                <strong>{{ entry.title }}</strong><span>{{ Array.from(entry.content).length.toLocaleString() }} 字符</span>
+                <small>{{ entry.source }} · {{ entry.role || '注入段' }} · {{ contextOrigin(entry) }}</small>
+              </li></ol>
+            </details>
           </template>
           <WorldbookReferences v-model="draft.worldbookReferences" :profile-key="draftProfile" :disabled="!canEdit || saving || importing">
             <template #preview><div v-for="rendered in fieldPreviews('worldbookReferences')" :key="rendered.key" class="libei-inline-preview" :data-projection="rendered.key"><h4>{{ rendered.source }} · 引用原文预览</h4><pre class="libei-preview-text">{{ rendered.content }}</pre></div></template>
@@ -284,7 +329,7 @@ onBeforeUnmount(() => { alive = false; actionEpoch++; previewEpoch++; invalidate
       </fieldset>
     </template>
     <p v-else class="bbs-empty">请先打开一个单角色聊天，等待当前角色规则载入。</p>
-    <Collapsible title="状态更新选项" :open="false">
+    <Collapsible v-show="isContext" title="状态更新选项" :open="false">
       <p class="libei-hint">更新选项单独保存；上下文预览使用引擎当前已保存的选项。</p>
       <label class="libei-switch"><span>正文完成后自动更新状态</span><input v-model="optionsDraft.automatic" class="bbs-checkbox" type="checkbox" /></label>
       <label class="libei-field"><span>参考最近消息数（2～30；只结算目标楼层）</span><input v-model.number="optionsDraft.contextMessages" type="number" min="2" max="30" class="bbs-input" /></label>
@@ -296,6 +341,7 @@ onBeforeUnmount(() => { alive = false; actionEpoch++; previewEpoch++; invalidate
 <style scoped>
 .libei-rules-page{display:flex;flex-direction:column;gap:14px;min-width:0}.libei-rules-page h3,.libei-rules-page h4,.libei-rules-page h5{margin:0;font-weight:600}.libei-rules-page h3{font-size:15px}.libei-rules-page h4{font-size:13px}.libei-rules-page h5{font-size:12px}
 .libei-hint{font-size:12px;line-height:1.7;color:var(--bbs-ink-soft);margin:0;overflow-wrap:anywhere}.libei-profile strong{font-weight:600}.libei-notice{font-size:12px;line-height:1.7;color:var(--bbs-ink);background:var(--bbs-surface-2);padding:9px 12px;margin:0;border-radius:var(--bbs-radius-sm);overflow-wrap:anywhere}.libei-error{color:var(--bbs-danger);font-size:12px;line-height:1.7;overflow-wrap:anywhere;margin:0}
+.libei-context-composition{display:grid;gap:10px;font-size:13px;min-width:0}.libei-context-composition summary{cursor:pointer;overflow-wrap:anywhere}.libei-context-module{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;padding:10px;border:1px solid var(--bbs-line);border-radius:var(--bbs-radius-sm);overflow-wrap:anywhere}.libei-context-module small{grid-column:1/-1;color:var(--bbs-ink-soft);line-height:1.6}
 .libei-rule-fields{border:0;padding:0;margin:0;min-width:0;display:grid;gap:16px}.libei-field{display:flex;flex-direction:column;gap:7px;font-size:13px;min-width:0}.libei-field>.bbs-input{width:100%;min-width:0}.libei-initials{display:grid;gap:10px;min-width:0}.libei-initial-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px}.libei-initial-head>.bbs-btn{min-height:44px}.libei-context-region{display:grid;gap:12px;min-width:0}.libei-inline-preview{display:grid;gap:7px;min-width:0;border-top:1px solid var(--bbs-line);padding-top:10px}.libei-context-list,.libei-message-list{list-style:none;display:grid;gap:9px;margin:0;padding:0;min-width:0}.libei-context-list>li,.libei-message-list>li{min-width:0}
 .libei-rule-entry,.libei-preview-entry{min-width:0;border:1px solid var(--bbs-line);border-radius:var(--bbs-radius);background:var(--bbs-surface);overflow:hidden}.libei-rule-entry>summary,.libei-preview-entry>summary{cursor:pointer;padding:12px;min-height:44px;font-size:13px;line-height:1.6;overflow-wrap:anywhere}.libei-rule-entry>summary{display:flex;flex-wrap:wrap;align-items:center;gap:7px;list-style:none}.libei-rule-entry>summary::after{content:'＋';margin-left:auto;flex:none;color:var(--bbs-ink-soft)}.libei-rule-entry[open]>summary::after{content:'−'}.libei-rule-entry>summary::-webkit-details-marker{display:none}.libei-rule-entry[open]>summary,.libei-preview-entry[open]>summary{border-bottom:1px solid var(--bbs-line)}
 .libei-entry-title{font-weight:600;min-width:0;overflow-wrap:anywhere}.libei-entry-number{font:11px var(--bbs-font-mono);color:var(--bbs-ink-soft)}.libei-entry-tag{font-size:10px;font-weight:400;color:var(--bbs-ink-soft);overflow-wrap:anywhere}.libei-entry-body{display:grid;gap:10px;min-width:0;padding:12px}.libei-entry-body>p{font-size:12px;line-height:1.7;margin:0;overflow-wrap:anywhere}.libei-editor{min-height:160px;font:13px/1.7 var(--bbs-font-mono);resize:vertical;tab-size:2;max-width:100%;overflow-wrap:anywhere;white-space:pre-wrap}

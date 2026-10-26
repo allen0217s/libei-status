@@ -12,7 +12,8 @@ const props = defineProps<{ name: string; size?: number | string }>();
 
 // 仅放路径数据,统一的 svg 外壳在模板里。stroke 风格。
 const PATHS: Record<string, string> = {
-  // 黎北三页：沿用原文档与花括号图标的描边语言。
+  context: '<path d="M4 5h16v12H9l-5 4z"/><path d="M8 9h8M8 13h5"/>',
+  // 页面图标：沿用原文档与花括号图标的描边语言。
   state: '<path d="M6 3.5h8.5L19 8v12.5H6z"/><path d="M14 3.5V8h4.5"/><path d="M9 12.5h6M9 16h6M9 9h2"/>',
   rules: '<path d="M9 4.5c-2 0-2 2.4-2 4 0 1.8-.8 2.9-2.5 3 1.7.1 2.5 1.2 2.5 3 0 1.6 0 4-2 4"/><path d="M15 4.5c2 0 2 2.4 2 4 0 1.8.8 2.9 2.5 3-1.7.1-2.5 1.2-2.5 3 0 1.6 0 4-2 4"/>',
   // 摘要:文档 + 文本行

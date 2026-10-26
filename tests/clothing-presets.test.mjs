@@ -44,7 +44,7 @@ test('One-time clothing migration preserves subsequent custom labels and rules t
   const before=clone(shirt),saved=C.presetRules(draft),reloaded=C.upgradeProfile(clone(saved));
   assert.deepEqual(clone(at(reloaded.fieldSchema,'主角/穿着/上装/衣物')),before);
   const doc=C.rulePresetDocument(reloaded,'改过的衣着'),parsed=C.parseRulePreset(doc);
-  assert.deepEqual(Object.keys(parsed.rules).sort(),['fieldSchema','presetName']);
+  assert.deepEqual(Object.keys(parsed.rules).sort(),['fieldSchema','initials','presetName']);
   assert.deepEqual(clone(at(parsed.rules.fieldSchema,'主角/穿着/上装/衣物')),before);
   assert.equal(C.upgradeProfile({...reloaded,...parsed.rules}).fieldSchema.fields.find(field=>field.id===shirt.id).label,'今天的外套');
   assert.throws(()=>C.upgradeProfile({...draft,clothingLayoutVersion:2}),/衣着布局版本/u);
@@ -170,12 +170,12 @@ test('Historical explicit schema is cloned while nonclothing field configuration
   assert.deepEqual(clone(at(view.schema,'主角/想法')),field);assert.equal(view.state.主角.想法,true);assert.equal(JSON.stringify(node),before);
 });
 
-test('Plain-text presets round-trip only fields and reject legacy bundles or extra configuration',()=>{
+test('Plain-text presets round-trip fields and initial schemes while excluding other configuration',()=>{
   const dirty={...clone(modern),config:{apiKey:'SECRET'},rememberedKey:'SECRET',chat:{messages:['HISTORY']},arbitrary:'SECRET'};
   dirty.initials[0].apiKey='SECRET';
   at(dirty.fieldSchema,'主角/想法').rule='含冒号: 和 # 及换行\n  缩进与中文\n\n';
   const text=C.rulePresetDocument(dirty,'  现代日常  ');
-  assert.ok(text.startsWith('# 男主状态字段预设 v1\n'));assert.doesNotMatch(text,/SECRET|HISTORY|apiKey|rememberedKey|initials|systemPrompt|numericConfig|worldbookReferences/u);
+  assert.ok(text.startsWith('# 男主状态变量预设 v2\n'));assert.doesNotMatch(text,/SECRET|HISTORY|apiKey|rememberedKey|initials|systemPrompt|numericConfig|worldbookReferences/u);
   const parsed=C.parseRulePreset(text);assert.equal(parsed.name,'现代日常');assert.deepEqual(clone(parsed.rules),clone(C.fieldPreset({...dirty,presetName:'现代日常'})));
   assert.deepEqual(clone(C.parseRulePreset('\uFEFF'+text.replace(/\n/g,'\r\n'))),clone(parsed));
   for(const invalid of ['{bad','[]',JSON.stringify({format:'libei-rule-preset-v1',name:'旧版',rules:modern}),text+'初值: {}\n',text+'名称: 重复\n',text.replace(/^名称:.*$/mu,'名称: &bad 现代日常'),text.replace(/^名称:.*$/mu,'名称: !tag 现代日常'),'x'.repeat(250001)])assert.throws(()=>C.parseRulePreset(invalid));
@@ -196,6 +196,20 @@ test('Initialization accepts ordinary field evidence without weakening program n
   for(const id of ['字段ID','钱财','/主角/钱财'])assert.throws(()=>parse({[id]:'钱包里有四十二元'}),error=>error.message.includes(id)&&error.message.includes('未允许的字段 ID'));
   assert.throws(()=>parse({[location.id]:{text:'站在门口'}}),/初始化引文须为/u);
   assert.throws(()=>parse({[location.id]:'x'.repeat(501)}),/初始化引文须为/u);
+});
+
+test('Preset schemes validate independently, support zero schemes and accept old field-only text',()=>{
+  const full=C.fieldPreset(legacy);assert.equal(full.initials.length,2);
+  assert.equal(C.chooseInitial({...legacy,initialChoice:full.initials[1].id}).id,full.initials[1].id);
+  const empty=C.presetRules({...modern,initials:[],initialChoice:''});assert.equal(C.chooseInitial(empty),null);
+  assert.equal(C.parseRulePreset(C.rulePresetDocument(empty,'无初值')).rules.initials.length,0);
+  const old='# 男主状态字段预设 v1\n名称: 旧字段预设\n字段: '+JSON.stringify(modern.fieldSchema.fields)+'\n';
+  assert.equal(C.parseRulePreset(old).rules.initials.length,0);
+  assert.equal(C.fieldPreset({presetName:'旧库',fieldSchema:modern.fieldSchema}).initials.length,0);
+  const duplicate=clone(modern);duplicate.initials.push(clone(duplicate.initials[0]));assert.throws(()=>C.fieldPreset(duplicate),/ID/u);
+  const invalid=clone(modern);invalid.initials[0].text='世界: {时间: 不是时间}';assert.throws(()=>C.fieldPreset(invalid));
+  const selected=C.parseRulePreset(C.rulePresetDocument({...legacy,initialChoice:legacy.initials[1].id},'两套初值'));
+  assert.equal(selected.rules.initials.length,2);assert.equal(Object.hasOwn(selected.rules,'initialChoice'),false);
 });
 
 // Exercise the exact runtime operation bodies with in-memory dependencies, without a DOM or host install.
@@ -238,10 +252,10 @@ test('Preset listing is cloned, keeps original LiBei builtin, and user save/dele
   const api=harness(),before=api.snapshot(),list=api.listRulePresets();
   assert.deepEqual(clone(list.map(item=>item.id)),['modern','libei']);assert.deepEqual(clone(list.map(item=>item.label)),['默认预设','黎北预设']);
   assert.deepEqual(clone(list[1].rules.fieldSchema),clone(legacy.fieldSchema));
-  for(const item of list)assert.deepEqual(Object.keys(item.rules).sort(),['fieldSchema','presetName']);
+  for(const item of list)assert.deepEqual(Object.keys(item.rules).sort(),['fieldSchema','initials','presetName']);
   list[0].rules.fieldSchema.fields[0].label='mutated';assert.notEqual(api.listRulePresets()[0].rules.fieldSchema.fields[0].label,'mutated');
   const saved=api.saveRulePreset('我的预设',modern,'role.png');assert.equal(saved.builtin,false);assert.equal(api.listRulePresets().length,3);
-  assert.deepEqual(Object.keys(saved.rules).sort(),['fieldSchema','presetName']);
+  assert.deepEqual(Object.keys(saved.rules).sort(),['fieldSchema','initials','presetName']);
   assert.equal(JSON.stringify(api.snapshot().stored.profiles),JSON.stringify(before.stored.profiles));
   assert.equal(api.snapshot().stored.timeline,'UNTOUCHED_CHAT');assert.equal(api.snapshot().stored.rememberedKey,'SECRET');
   assert.throws(()=>api.deleteRulePreset('modern','role.png'));api.deleteRulePreset(saved.id,'role.png');assert.equal(api.listRulePresets().length,2);
@@ -282,6 +296,16 @@ await asyncTest('Preset replacement needs its own preview/commit, stays blank un
   assert.equal(JSON.parse(final.requests[0].findLast(entry=>entry.role==='user').content).previous_state,null);
   const schemaRows=JSON.parse(final.requests[0].find(entry=>entry.content.startsWith('[{')).content);
   assert.ok(schemaRows.every(field=>field.required&&!Object.hasOwn(field,'default')));
+});
+
+test('Applying a chosen initial creates one new checkpoint with no model request and keeps history',()=>{
+  const api=harness(),rules=clone(modern);rules.initialChoice=rules.initials[0].id;
+  const initial=JSON.parse(rules.initials[0].text);initial.主角.钱财=73;rules.initials[0].text=JSON.stringify(initial);
+  const before=api.snapshot(),plan=api.previewRulePreset(rules,'role.png');const result=api.commitRulePreset(plan.planId),after=api.snapshot();
+  assert.equal(result.initialized,true);assert.equal(api.view().state.主角.钱财,73);assert.equal(api.view().awaitingPresetGeneration,false);
+  assert.deepEqual(after.timeline.nodes.slice(0,before.timeline.nodes.length),before.timeline.nodes);
+  assert.equal(after.timeline.nodes.length,before.timeline.nodes.length+1);assert.equal(after.timeline.nodes.at(-1).initialId,rules.initialChoice);
+  assert.equal(after.requests.length,0);assert.equal(after.injection.enabled,true);
 });
 
 test('Preset plans reject stale profile/chat/transcript/config/selection/revision and busy/read-only commits',()=>{

@@ -14,7 +14,7 @@ const checks=[];
   const doc=()=>E("(()=>{const key=[...__memory.keys()].find(key=>key.includes(':chat:modern-ui.png:modern-chat'));return key?JSON.parse(__memory.get(key)):null})()");
   const calls=()=>E('__requests.length');
   const check=async(name,fn)=>{await fn();checks.push(name);console.log('PASS '+name)};
-  const open=async page=>{await E(`__libeiV2App.open(${JSON.stringify(page)})`);await wait(`!!__root.querySelector('.libei-${page==='state'?'state':'rules'}-page')`)};
+  const open=async page=>{await E(`__libeiV2App.open(${JSON.stringify(page)})`);await wait(page==='state' ? "!!__root.querySelector('.libei-state-page')" : `!!__root.querySelector('[data-editor-page=${page}]')`)};
   const load=async id=>{await select('[data-preset-select]',id);await tap('[data-action=load-rule-preset]');await wait("__root.querySelector('.libei-rule-actions').parentElement.textContent.includes('有未保存修改')")};
   const applyPreset=async()=>{await click('保存规则');await wait("__root.querySelector('[data-schema-review]')?.textContent.includes('审核预设替换')");await tap('[data-action=confirm-schema]');await wait("!__root.querySelector('[data-schema-review]')")};
   const errorFrom=body=>E(`(async()=>{try{${body};return ''}catch(error){return error.message}})()`);
@@ -63,10 +63,10 @@ const checks=[];
    const text=JSON.stringify(p.update.messages)+p.story.content;for(const retired of ['精液','元精','阳具','遮露','内衬'])assert.ok(!text.includes(retired),retired);
    for(const modern of ['上装','下装','内裤','鞋袜','人民币'])assert.ok(text.includes(modern));assert.equal(await memory(),bytes);assert.equal(await calls(),count);
   });
-  await check('Loading a field preset preserves current initial schemes and only changes an unsaved draft',async()=>{
+  await check('Loading a preset loads its own initial schemes, selects none and only changes an unsaved draft',async()=>{
    const bytes=await memory(),before=(await snap()).rules;await load('libei');
    assert.ok(await E("[...__root.querySelectorAll('[data-field-id]')].some(el=>el.textContent.includes('元精'))"));
-   assert.deepEqual(await E("[...__root.querySelectorAll('[data-initial-id]')].map(el=>el.dataset.initialId)"),before.initials.map(item=>item.id));assert.deepEqual((await snap()).rules,before);assert.equal(await memory(),bytes);
+   assert.deepEqual(await E("[...__root.querySelectorAll('[data-initial-id]')].map(el=>el.dataset.initialId)"),(await E('__libeiV2App.api.listRulePresets()')).find(item=>item.id==='libei').rules.initials.map(item=>item.id));assert.deepEqual((await snap()).rules,before);assert.equal(await memory(),bytes);
    await click('放弃修改');assert.equal(await E("__root.querySelector('[data-rule-presets]').textContent.includes('当前草稿：默认预设')"),true);
   });
   let customId;
@@ -83,7 +83,7 @@ const checks=[];
    const bytes=await memory();await input(ruleSelector,'地点按本轮实际移动更新。DRAFT_RULE_EXPORT_SENTINEL');
    await E("window.__nativeObjectURL=URL.createObjectURL;URL.createObjectURL=()=>{throw Error('Unexpected file download')};__previewContext.extensionSettings.libei_status_v2.__testSecret='PRIVATE_API_TOKEN_SENTINEL'");
    await tap('[data-action=export-rule-preset]');await wait("__root.querySelector('[data-preset-text]').value.includes('DRAFT_RULE_EXPORT_SENTINEL')");exported=await E("__root.querySelector('[data-preset-text]').value");
-   assert.ok(exported.startsWith('# 男主状态字段预设 v1\n'));assert.ok(exported.includes('DRAFT_RULE_EXPORT_SENTINEL'));
+   assert.ok(exported.startsWith('# 男主状态变量预设 v2\n'));assert.ok(exported.includes('DRAFT_RULE_EXPORT_SENTINEL'));
    for(const forbidden of ['PRIVATE_API_TOKEN_SENTINEL','PRESET_BROWSER_CHAT_BODY_987','rememberedKey','channels','transport','initials','numericConfig','worldbookReferences','systemPrompt'])assert.ok(!exported.includes(forbidden));
    assert.equal(await E("!!__root.querySelector('[data-preset-file]')"),false);
    assert.equal(await memory(),bytes);await E('URL.createObjectURL=__nativeObjectURL');
@@ -109,7 +109,7 @@ const checks=[];
    await click('保存规则');await wait("!!__root.querySelector('[data-schema-review]')");assert.ok(await E("__root.querySelector('[data-schema-review]').textContent.includes('审核预设替换')"));
    await tap('[data-action=cancel-schema]');assert.deepEqual((await snap()).rules,before);
    await applyPreset();const after=(await snap()).rules;assert.ok(after.fieldSchema.fields.find(field=>field.id===locationId).rule.includes('DRAFT_RULE_EXPORT_SENTINEL'));
-   for(const key of ['initialChoice','protagonistName','numericConfig','systemPrompt','storyInstruction','worldbookReferences','updateRules','outputFormat','snapshotTemplate'])assert.deepEqual(after[key],before[key],key);
+   for(const key of ['protagonistName','numericConfig','systemPrompt','storyInstruction','worldbookReferences','updateRules','outputFormat','snapshotTemplate'])assert.deepEqual(after[key],before[key],key);assert.equal(after.initialChoice,'');assert.deepEqual(after.initials,before.initials);
   });
   await check('Applying a preset blanks current display, pauses injection and keeps old snapshots byte-intact',async()=>{
    const oldNodes=(await doc()).nodes,s=await snap();assert.equal(s.awaitingPresetGeneration,true);assert.equal(s.state,null);
@@ -163,6 +163,29 @@ const checks=[];
    await select('[data-preset-select]',customId);await click('删除所选自建预设');await tap('[data-action=confirm-delete-preset]');
    await wait("![...__root.querySelector('[data-preset-select]').options].some(option=>option.textContent.includes('城市通勤'))");assert.deepEqual((await snap()).rules,before);assert.deepEqual((await doc()).nodes,nodes);
   });
+  await check('Initial selection is inside the preset panel and applies explicitly without a model request',async()=>{
+   await load('modern');
+   assert.equal(await E("!!__root.querySelector('[data-rule-presets] .libei-initials')"),true);
+   await E("__root.querySelector('[aria-label=预设初值方案]').click()");await wait("!!__root.querySelector('.bbs-select-option')");
+   assert.ok(await E("[...__root.querySelectorAll('.bbs-select-option')].some(el=>el.textContent.includes('无初值'))"));
+   const initial=(await E('__libeiV2App.api.listRulePresets()')).find(p=>p.id==='modern').rules.initials[0];
+   await E(`[...__root.querySelectorAll('.bbs-select-option')].find(el=>el.textContent.includes(${JSON.stringify(initial.label)})).click()`);
+   const nodes=(await doc()).nodes,count=await calls();await applyPreset();
+   const s=await snap();assert.equal(s.awaitingPresetGeneration,false);assert.equal(s.rules.initialChoice,initial.id);assert.equal(s.state.主角.钱财,JSON.parse(initial.text).主角.钱财);
+   assert.equal(await calls(),count);assert.deepEqual((await doc()).nodes.slice(0,nodes.length),nodes);assert.equal((await doc()).nodes.at(-1).initialId,initial.id);
+  });
+  await check('Loading again selects no initial and applying keeps current state blank without calling a model',async()=>{
+   await load('modern');const nodes=(await doc()).nodes,count=await calls();await applyPreset();
+   assert.equal((await snap()).rules.initialChoice,'');assert.equal((await snap()).state,null);assert.equal((await snap()).awaitingPresetGeneration,true);
+   assert.deepEqual((await doc()).nodes,nodes);assert.equal(await calls(),count);
+  });
+  await check('Old field-only text imports with zero initial schemes and can create a new scheme from defaults',async()=>{
+   const before=(await snap()).rules,legacy='# 男主状态字段预设 v1\n名称: 旧字段预设\n字段: '+JSON.stringify(before.fieldSchema.fields)+'\n';
+   await importText(legacy);await wait("__root.querySelectorAll('[data-initial-id]').length===0");
+   await click('新建初值');await wait("!!__root.querySelector('[data-initial-id=custom-1]')");
+   const text=await E("__root.querySelector('[data-initial-id=custom-1] textarea').value");assert.equal(JSON.parse(text).世界.时间,'00:00');
+   assert.deepEqual((await snap()).rules,before);await click('放弃修改');
+  });
   await check('Returning to the latest floor after a discarded result can regenerate normally',async()=>{
    await open('state');await wait("!!__root.querySelector('[data-awaiting-preset]')");
    const values=await generationValues(),moneyField=(await snap()).rules.fieldSchema.fields.find(field=>field.system==='money');
@@ -170,7 +193,7 @@ const checks=[];
    await wait("!!__libeiV2App.api.snapshot().state && !__libeiV2App.api.snapshot().awaitingPresetGeneration");
    assert.equal((await snap()).state.主角.穿着.鞋袜.衣物,'NEW_鞋袜_衣物');await open('rules');
   });
-  await E("__root.querySelector('[data-rule-presets]').scrollIntoView({block:'start'})");await screenshot('51-rule-presets-desktop.png');
+  await E("__root.querySelector('.libei-rules-page').scrollIntoView({block:'start'})");await screenshot('51-rule-presets-desktop.png');
   for(const width of [390,320]){
    await cdp.send('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:true});
    await check(width+'px preset controls and four clothing fields stay within the viewport',async()=>{

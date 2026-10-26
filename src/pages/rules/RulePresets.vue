@@ -41,7 +41,7 @@ async function exportText() {
  try {
   const result=await props.exportText(name.value);
   if(!alive||request!==epoch||key!==props.profileKey)return;
-  text.value=result;notice.value='已生成字段预设文本，可复制或编辑后重新导入。';
+  text.value=result;notice.value='已生成变量预设文本，可复制或编辑后重新导入。';
  }catch(cause){if(alive&&request===epoch)error.value=cause instanceof Error?cause.message:String(cause)}
  finally{if(alive&&request===epoch)busy.value=false}
 }
@@ -50,7 +50,7 @@ async function copyText() {
  try {
   if(!navigator.clipboard?.writeText)throw Error('clipboard unavailable');
   await navigator.clipboard.writeText(text.value);
-  if(alive&&key===props.profileKey&&request===epoch)notice.value='已复制字段预设文本。';
+  if(alive&&key===props.profileKey&&request===epoch)notice.value='已复制变量预设文本。';
  }catch{
   if(!alive||key!==props.profileKey||request!==epoch)return;
   textArea.value?.focus();textArea.value?.select();notice.value='浏览器未允许复制，文本已选中，请按 Ctrl+C 或长按复制。';
@@ -74,20 +74,21 @@ defineExpose({refresh});
 </script>
 
 <template>
- <section class="libei-presets" data-rule-presets aria-label="变量字段预设" :aria-busy="busy">
-  <div class="libei-preset-head"><h3>变量字段预设</h3><span>当前草稿：{{ rules?.presetName || '未命名' }}</span></div>
-  <p>预设只包含字段定义和各字段的更新规则。载入仅替换草稿中的字段，其他配置保留；审核应用后当前状态留空，由你手动生成，旧快照保留。</p>
+ <section class="libei-presets" data-rule-presets aria-label="变量预设" :aria-busy="busy">
+  <div class="libei-preset-head"><h3>变量预设</h3><span>当前草稿：{{ rules?.presetName || '未命名' }}</span></div>
+  <p>预设包含字段、字段更新规则和多套初值方案。载入后默认无初值，可选择一套方案；确认应用前均为草稿，其他配置和旧快照保留。</p>
   <label>选择预设<select v-model="selected" class="bbs-input" data-preset-select :disabled="disabled||busy"><option v-for="preset in presets" :key="preset.id" :value="preset.id">{{ preset.label }}{{ preset.builtin ? ' · 内置' : ' · 自建' }}</option></select></label>
   <div class="libei-preset-actions">
    <button class="bbs-btn" type="button" data-action="load-rule-preset" :disabled="disabled||busy||!chosen" @click="load">载入预设草稿</button>
    <button class="bbs-btn" type="button" data-action="export-rule-preset" :disabled="disabled||busy" @click="exportText">生成导出文本</button>
   </div>
-  <label>预设文本<textarea ref="textArea" v-model="text" class="bbs-input libei-preset-text" data-preset-text :disabled="disabled||busy" spellcheck="false" placeholder="点击“生成导出文本”，或在这里粘贴同格式的字段预设。" /></label>
+  <slot name="initials" />
+  <label>预设文本<textarea ref="textArea" v-model="text" class="bbs-input libei-preset-text" data-preset-text :disabled="disabled||busy" spellcheck="false" placeholder="点击“生成导出文本”，或在这里粘贴同格式的变量预设。" /></label>
   <div class="libei-preset-actions"><button class="bbs-btn" type="button" data-action="copy-rule-preset" :disabled="disabled||busy||!text" @click="copyText">复制文本</button><button class="bbs-btn" type="button" data-action="import-rule-preset" :disabled="disabled||busy||!text.trim()" @click="importText">解析导入草稿</button></div>
-  <p>首行固定为 # 男主状态字段预设 v1，下面按 YAML 格式填写“名称”和“字段”。可先导出作模板；粘贴后点击解析，格式有误时保留文本与原草稿。</p>
+  <p>首行固定为 # 男主状态变量预设 v2，下面按 YAML 格式填写“名称”“字段”和“初值方案”。可先导出作模板；粘贴后点击解析，格式有误时保留文本与原草稿。</p>
   <p v-if="notice" role="status">{{ notice }}</p>
   <div class="libei-preset-save"><label>另存名称<input v-model="name" class="bbs-input" data-preset-name maxlength="80" :disabled="disabled||busy" placeholder="例如：都市日常" /></label><button class="bbs-btn" type="button" data-action="save-rule-preset" :disabled="disabled||busy||!name.trim()" @click="emit('save-library',name)">另存为预设</button></div>
-  <p>另存、导出均只包含字段，不包含初值方案、全局提示词、世界书引用、计算参数、聊天进度或 API 配置。另存只保存副本，不应用到聊天。</p>
+  <p>另存、导出包含字段与初值方案，不包含当前选择、全局提示词、世界书引用、计算参数、聊天进度或 API 配置。另存只保存副本，不应用到聊天。</p>
   <template v-if="chosen && !chosen.builtin"><button v-if="!confirmDelete" class="bbs-btn" type="button" :disabled="disabled||busy" @click="confirmDelete=true">删除所选自建预设</button><div v-else class="libei-preset-actions"><span>删除「{{ chosen.label }}」？当前角色配置和聊天不受影响。</span><button class="bbs-btn" type="button" data-action="confirm-delete-preset" :disabled="disabled||busy" @click="remove">确认删除预设</button><button class="bbs-btn" type="button" @click="confirmDelete=false">取消</button></div></template>
   <p v-if="error" class="libei-preset-error" role="alert">{{ error }} <button class="bbs-btn" type="button" :disabled="busy" @click="refresh">重新读取预设</button></p>
  </section>

@@ -68,7 +68,7 @@ const checks = [];
       assert.equal(s.state, null);
     });
     await check('New initial is selectable and initializes only after explicit save', async () => {
-      await E("__root.querySelector('[aria-label=新聊天初值方案]').click()");
+      await E("__root.querySelector('[aria-label=预设初值方案]').click()");
       await wait("!!__root.querySelector('.bbs-select-option')");
       await E("[...__root.querySelectorAll('.bbs-select-option')].find(e=>e.textContent.includes('新建回归方案')).click()");
       assert.equal((await snap()).state, null);
@@ -112,6 +112,7 @@ const checks = [];
       await wait("__root.querySelectorAll('[data-initial-id]').length===3");
     });
     await E("__libeiV2App.api.saveOptions({...__libeiV2App.api.snapshot().config,sendNumericToStory:true});__previewContext.chat.push({is_user:true,mes:'等待。'},{is_user:false,is_system:false,mes:'时间没有变化。',swipe_id:0});__libeiV2App.api.refresh()");
+    await E("__libeiV2App.open('context')");await wait("!!__root.querySelector('[data-editor-page=context]')");
     await check('One combined list holds each editable field once with inline projections', async () => {
       const before = await memory(), requests = await E('__requests.length');
       await click('预览当前草稿');
@@ -152,7 +153,9 @@ const checks = [];
     await check('Initial labels and prompt HTML render as inert text', async () => {
       const before = await memory(), requests = await E('__requests.length');
       const malicious = '<img src=x onerror="window.__rulesXss=true">';
+      await E("__libeiV2App.open('rules')");await wait("!!__root.querySelector('[data-editor-page=rules]')");
       await input('[data-initial-id=custom-1] input', malicious);
+      await E("__libeiV2App.open('context')");await wait("!!__root.querySelector('[data-editor-page=context]')");
       const source = await E("__root.querySelector('[data-rule-field=systemPrompt] textarea').value");
       await input('[data-rule-field=systemPrompt] textarea', source + malicious);
       await click('预览当前草稿');
@@ -163,6 +166,8 @@ const checks = [];
       assert.equal(await E('__requests.length'), requests);
       await click('放弃修改');
     });
+    await E("__libeiV2App.open('rules')");await wait("!!__root.querySelector('[data-editor-page=rules]')");await click('放弃修改');
+    await E("__libeiV2App.open('context')");await wait("!!__root.querySelector('[data-editor-page=context]')");
     await check('Explicit reference collection includes selected raw content, not unselected old variable material', async () => {
       await E("(()=>{__previewContext.characters[0].data={extensions:{world:'剧情设定'}};const rules=__libeiV2App.api.snapshot().rules;rules.worldbookReferences=[{book:'剧情设定',uid:'0'}];__libeiV2App.api.saveRules(rules,'rules-ui.png')})()");
       const before = await memory(), requests = await E('__requests.length');

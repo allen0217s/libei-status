@@ -11,7 +11,8 @@
     "test:rules": "node tests/rules-page.browser.cjs",
     "test:fields": "node tests/field-schema.browser.cjs",
     "test:references": "node tests/rules-references.browser.cjs",
-    "test:presets": "node tests/presets.browser.cjs"
+    "test:presets": "node tests/presets.browser.cjs",
+    "test:context": "node tests/context-page.browser.cjs"
   },
   "dependencies": {
     "vue": "3.5.35"

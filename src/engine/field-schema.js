@@ -190,7 +190,12 @@ export function createFieldSchemaToolkit() {
     for (const field of checked.fields) {
       if (!field.enabled) continue;
       const found = locate(source, field.path);
-      if (!found.exists || !valueValid(found.value, field)) fail('字段缺失或类型、范围不符：' + field.label);
+      if (!found.exists || !valueValid(found.value, field)) {
+        const expected = field.type + (field.options ? '，选项 ' + JSON.stringify(field.options) : '') + (own(field,'min') ? '，最小值 ' + field.min : '') + (own(field,'max') ? '，最大值 ' + field.max : '');
+        const actual = found.exists ? (found.value === null ? 'null' : Array.isArray(found.value) ? 'array' : typeof found.value) + ' ' + JSON.stringify(found.value).slice(0,120) : '缺失';
+        const error = new Error('字段缺失或类型、范围不符：' + field.label + '；要求 ' + expected + '，实际 ' + actual + '。请提交符合字段定义的值。');
+        error.fieldPath = cloneJson(field.path); throw error;
+      }
     }
     return source;
   }

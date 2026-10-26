@@ -14,7 +14,7 @@ const checks=[];
   const calls=()=>E('__requests.length');
   const entry=uid=>`[data-reference-book="绑定资料"][data-reference-uid="${uid}"]`;
   const check=async(name,fn)=>{await fn();checks.push(name);console.log('PASS '+name)};
-  const open=async page=>{await E(`__libeiV2App.open(${JSON.stringify(page)})`);await wait(`!!__root.querySelector('.libei-${page==='state'?'state':'rules'}-page')`)};
+  const open=async page=>{await E(`__libeiV2App.open(${JSON.stringify(page)})`);await wait(page==='state' ? "!!__root.querySelector('.libei-state-page')" : `!!__root.querySelector('[data-editor-page=${page}]')`)};
   await wait('__libeiV2App.api.snapshot().writerReady');
   await E("__previewContext.characters[0]={name:'条目回归',avatar:'reference-ui.png',data:{extensions:{world:'绑定资料'}}};__previewContext.name2='条目回归';__chatId='reference-chat';__previewContext.chat=[{is_user:false,is_system:false,mes:'开场',swipe_id:0}];__emit('CHAT_CHANGED')");
   await wait("__libeiV2App.api.snapshot().profileKey==='reference-ui.png'");
@@ -39,6 +39,7 @@ const checks=[];
    assert.equal(await E("__root.querySelectorAll('[data-rule-field=numericRules]').length"),0);assert.equal(await E("__root.querySelectorAll('[data-rule-field=numericConfig]').length"),1);
    await E(`__root.querySelector('[data-field-id="${locationId}"]').open=true;__root.querySelector('[data-field-id="${locationId}"]').scrollIntoView({block:'start'})`);await screenshot('41-verbatim-field-rule.png');
   });
+  await open('context');
   await E("__root.querySelector('[data-rule-field=worldbookReferences]').open=true");
   await wait(`!!__root.querySelector('${entry('7')}')`);
   await check('Picker lists only bound primary/auxiliary books, never unrelated global books',async()=>{
@@ -61,7 +62,7 @@ const checks=[];
    assert.equal(await E("!!window.__refXss||!!window.__refEval||!!__root.querySelector('img[src=x]')"),false);assert.equal(await memory(),bytes);
   });
   await check('Saving persists stable book/UID only and never resets the existing chat',async()=>{
-   const bytes=await timeline(),state=(await snap()).state;await click('保存规则');
+   const bytes=await timeline(),state=(await snap()).state;await click('保存上下文');
    await wait("__libeiV2App.api.snapshot().rules.worldbookReferences.length===1");
    assert.deepEqual((await snap()).rules.worldbookReferences,[{book:'绑定资料',uid:'7'}]);assert.equal(await timeline(),bytes);assert.deepEqual((await snap()).state,state);
   });
@@ -131,7 +132,7 @@ const checks=[];
     assert.ok(await E("__root.querySelectorAll('[data-field-value]').length>0"));
     assert.equal(await E("__root.querySelectorAll('[data-field-value] dt span').length"),0);
     assert.equal(await E("['.libei-state-page','[data-schema-state]','.bbs-body'].every(selector=>{const el=__root.querySelector(selector);return el.scrollWidth<=el.clientWidth+1})"),true);
-    await screenshot('44-state-compact-'+width+'.png');await open('rules');await E("__root.querySelector('[data-rule-field=worldbookReferences]').open=true");
+    await screenshot('44-state-compact-'+width+'.png');await open('context');await E("__root.querySelector('[data-rule-field=worldbookReferences]').open=true");
    });
   }
   await check('No uncaught exceptions or external network requests',async()=>{assert.deepEqual(errors,[]);assert.deepEqual(external,[])});

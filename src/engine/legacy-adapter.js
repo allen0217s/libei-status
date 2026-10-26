@@ -284,11 +284,20 @@ function createLibeiStatusCore(YAML) {
     inspect(patch);
     return patch;
   }
-  function applyPatch(base, patch, schema) {
+  function operationError(cause, index, item, schema) {
+    if (cause.operationIndex) return cause;
+    const op = object(item) && typeof item.op === 'string' ? item.op : '未声明操作';
+    const path = object(item) && typeof item.path === 'string' ? item.path : op === 'money' ? '/主角/钱财' : op === 'release' ? '/主角/精液' : '';
+    const field = schema?.fields.find(field => path === '/' + field.path.map(part => part.replaceAll('~','~0').replaceAll('/','~1')).join('/'));
+    const error = new Error('第 ' + (index + 1) + ' 条操作（' + op + '）' + (path ? '，字段「' + (field?.label || path) + '」' + (field ? ' ' + path : '') : '') + '：' + cause.message);
+    error.operationIndex = index + 1; error.path = path; return error;
+  }
+  function applyPatch(base, patch, schema, sourceIndices = []) {
     base = normalizeState(base, schema);
     if (!Array.isArray(patch) || patch.length > 256) fail('操作数组无效。');
     const next = clone(base);
-    for (const step of patch) {
+    for (const [index,step] of patch.entries()) {
+      try {
       if (!object(step) || !['add', 'replace', 'remove'].includes(step.op)) fail('只支持 add / replace / remove。');
       if (Object.keys(step).some(k => !['op', 'path', 'value'].includes(k))) fail('操作包含未支持字段。');
       if (step.op !== 'remove' && !own(step, 'value')) fail('更新操作缺少 value。');
@@ -315,8 +324,16 @@ function createLibeiStatusCore(YAML) {
         if (step.op === 'remove') delete parent[key];
         else parent[key] = clone(step.value);
       }
+      } catch (error) { throw operationError(error,sourceIndices[index] ?? index,step,schema); }
     }
-    return validateState(next, schema);
+    try { return validateState(next, schema); }
+    catch (error) {
+      const index = error.fieldPath ? patch.findLastIndex(step => {
+        const path = pointer(step.path);
+        return error.fieldPath.every((part,i) => path[i] === part) || path.every((part,i) => error.fieldPath[i] === part);
+      }) : -1;
+      throw index >= 0 ? operationError(error,sourceIndices[index] ?? index,patch[index],schema) : error;
+    }
   }
   const OUTPUT_PROTOCOL = `只输出一个 JSON 数组，不写标签、Markdown、分析或解释；无变化写 []。
 普通字段用 {"op":"add|replace|remove","path":"/字段/子字段","value":新值}，remove 不带 value。路径直接相对于当前状态。
@@ -377,13 +394,16 @@ function createLibeiStatusCore(YAML) {
     const enabled = system => schema ? schema.fields.some(field => field.system === system && field.enabled) : own(base.主角 ?? base.黎北 ?? {}, {money:'钱财',energy:'精液',formula:'精液算式'}[system]);
     base = normalizeState(base, schema); inspect(commands);
     if (!Array.isArray(commands) || commands.length > 256) fail('更新必须是最多 256 项的数组。');
-    const config = numericConfig(rules), patch = [], events = [], seen = new Set();
-    for (const item of commands) {
+    const config = numericConfig(rules), patch = [], sourceIndices = [], events = [], eventIndices = [], seen = new Set();
+    for (const [index,item] of commands.entries()) {
+      try {
       if (!object(item)) fail('更新数组中的每一项必须是对象。');
       if (['add','replace','remove'].includes(item.op)) {
         const parts = pointer(item.path);
-        if (parts[0] === '主角' && (parts.length === 1 || ['钱财','精液','精液算式'].includes(parts[1]))) fail('钱财、元精及算式只能由程序结算，不能直接写入或替换整个主角对象。');
-        patch.push({...item,path:'/' + parts.map(part => part.replaceAll('~','~0').replaceAll('/','~1')).join('/')}); continue;
+        if (parts[0] === '主角' && (parts.length === 1 || ['钱财','精液','精液算式'].includes(parts[1]))) fail(parts[1] === '钱财' ? '钱财只能由程序结算，不能直接写入。请使用 money 收支事件，提供 direction、整数 amount 和本轮 evidence。' : '钱财、元精及算式只能由程序结算，不能直接写入或替换整个主角对象；消耗请使用 release 事件。');
+        const step = {...item,path:'/' + parts.map(part => part.replaceAll('~','~0').replaceAll('/','~1')).join('/')};
+        if (schema) F.assertModelPatch(base,[step],schema);
+        patch.push(step); sourceIndices.push(index); continue;
       }
       if (!['money','release'].includes(item.op)) fail('不支持的更新操作：' + item.op);
       if (item.op === 'money' && !enabled('money') || item.op === 'release' && !enabled('energy')) fail('对应程序字段已停用，本轮事件不能结算。');
@@ -399,16 +419,18 @@ function createLibeiStatusCore(YAML) {
       }
       const signature = serialEvent(item);
       if (seen.has(signature)) fail('同一数值事件重复上报，本轮未写入。');
-      seen.add(signature); events.push(clone(item));
+      seen.add(signature); events.push(clone(item)); eventIndices.push(index);
+      } catch (error) { throw operationError(error,index,item,schema); }
     }
-    if (schema) F.assertModelPatch(base, patch, schema);
-    const next = applyPatch(base, patch, schema), elapsed = elapsedMinutes(base.世界, next.世界), hours = Math.floor(elapsed / 60);
+    const next = applyPatch(base, patch, schema, sourceIndices), elapsed = elapsedMinutes(base.世界, next.世界), hours = Math.floor(elapsed / 60);
     let money = base.主角?.钱财, loss = 0;
-    for (const event of events) {
+    for (const [index,event] of events.entries()) {
+      try {
       if (event.op === 'money') {
         money += event.direction === 'income' ? event.amount : -event.amount;
         if (money < 0 || money > config.moneyMax) fail('收支事件会使钱财超出 0～' + config.moneyMax + '；本轮未写入，请核对事实。');
       } else loss += event.amount * (event.count ?? 1);
+      } catch (error) { throw operationError(error,eventIndices[index],event,schema); }
     }
     const round = n => Math.round(n * 1e8) / 1e8;
     const gain = enabled('energy') ? round(hours * config.hourlyGain) : 0;
@@ -433,7 +455,7 @@ function createLibeiStatusCore(YAML) {
   }
   function validateRules(rules) {
     inspect(rules);
-    if (!object(rules) || !Array.isArray(rules.initials) || rules.initials.length < 1 || rules.initials.length > 20) fail('初值方案应有 1～20 个。');
+    if (!object(rules) || !Array.isArray(rules.initials) || rules.initials.length > 20) fail('初值方案应有 0～20 个。');
     if (rules.fieldSchema !== undefined) F.validateSchema(rules.fieldSchema);
     const ids = new Set();
     for (const initial of rules.initials) {
@@ -458,7 +480,7 @@ function createLibeiStatusCore(YAML) {
   function migrateRules(source) {
     if (!object(source)) fail('规则配置无效。');
     const rules = clone(source);
-    if (!Array.isArray(rules.initials)) fail('初值方案应有 1～20 个。');
+    if (!Array.isArray(rules.initials)) fail('初值方案应有 0～20 个。');
     const stockIndex = rules.initials.findIndex(isLegacyGenericInitial);
     if (stockIndex >= 0 && rules.initials.length > 1) {
       const [removed] = rules.initials.splice(stockIndex, 1);
@@ -683,30 +705,39 @@ function createLibeiStatusCore(YAML) {
     const selected = Object.fromEntries(PRESET_RULE_KEYS.filter(key => own(value,key)).map(key => [key,clone(value[key])]));
     if (Array.isArray(selected.initials)) selected.initials = selected.initials.map(initial => ({id:initial.id,label:initial.label,text:initial.text}));
     const checked = upgradeProfile(selected);
-    snapshotText(checked.snapshotTemplate,parseYaml(checked.initials[0].text,checked.fieldSchema),checked.fieldSchema);
+    snapshotText(checked.snapshotTemplate,parseYaml(checked.initials[0]?.text ?? '{}',checked.fieldSchema),checked.fieldSchema);
     return checked;
   }
-  // Preset storage and interchange own only field definitions; full profiles stay separate.
+  // Presets own fields and their initial schemes; host/API configuration stays separate.
   function fieldPreset(value) {
     if (!object(value)) fail('预设缺少字段定义。');
-    return {presetName:presetName(value.presetName),fieldSchema:F.validateSchema(value.fieldSchema)};
+    const fieldSchema = F.validateSchema(value.fieldSchema), source = value.initials === undefined ? [] : value.initials;
+    if (!Array.isArray(source) || source.length > 20) fail('预设初值方案须为最多 20 项的列表。');
+    const ids = new Set(), initials = source.map(initial => {
+      if (!object(initial) || typeof initial.id !== 'string' || !initial.id.trim() || initial.id.length > 100 || ids.has(initial.id) || typeof initial.label !== 'string' || typeof initial.text !== 'string') fail('预设初值名称、ID 或 YAML 无效，ID 不能重复。');
+      ids.add(initial.id);
+      const item = {id:initial.id,label:initial.label,text:initial.text};
+      inspect(item); parseYaml(item.text,fieldSchema);
+      return item;
+    });
+    return {presetName:presetName(value.presetName),fieldSchema,initials};
   }
-  const FIELD_PRESET_HEADER = '# 男主状态字段预设 v1';
+  const FIELD_PRESET_HEADER = '# 男主状态变量预设 v2', LEGACY_FIELD_PRESET_HEADER = '# 男主状态字段预设 v1';
   function parseRulePreset(text) {
     if (typeof text !== 'string' || text.length > 250000) fail('预设文本不能超过 250000 字符。');
-    const normalized = text.replace(/^\uFEFF/u,'').replace(/\r\n/g,'\n').trimStart();
-    if (normalized.split('\n')[0] !== FIELD_PRESET_HEADER) fail('预设首行须为：' + FIELD_PRESET_HEADER);
+    const normalized = text.replace(/^\uFEFF/u,'').replace(/\r\n/g,'\n').trimStart(), header = normalized.split('\n')[0];
+    if (![FIELD_PRESET_HEADER,LEGACY_FIELD_PRESET_HEADER].includes(header)) fail('预设首行须为：' + FIELD_PRESET_HEADER);
     let value;
     try { value = parseYamlData(normalized); } catch (error) { fail('预设格式错误：' + error.message); }
-    if (Object.keys(value).length !== 2 || !own(value,'名称') || !own(value,'字段')) fail('预设只接受“名称”和“字段”，不接受初值或其他配置。');
-    const rules = fieldPreset({presetName:value.名称,fieldSchema:{version:1,fields:value.字段}});
+    const keys = header === LEGACY_FIELD_PRESET_HEADER ? ['名称','字段'] : ['名称','字段','初值方案'];
+    if (Object.keys(value).length !== keys.length || keys.some(key => !own(value,key))) fail('预设只接受“名称”“字段”和 v2 的“初值方案”，不接受其他配置。');
+    const rules = fieldPreset({presetName:value.名称,fieldSchema:{version:1,fields:value.字段},initials:header === LEGACY_FIELD_PRESET_HEADER ? [] : value.初值方案});
     return {name:rules.presetName,rules};
   }
   function rulePresetDocument(value,name) {
-    const rules = fieldPreset({...value,presetName:name}), doc = YAML.parseDocument('名称: ""\n字段: []\n');
-    doc.set('名称',rules.presetName); doc.set('字段',rules.fieldSchema.fields);
+    const rules = fieldPreset({...value,presetName:name}), doc = YAML.parseDocument('名称: ""\n字段: []\n初值方案: []\n');
+    doc.set('名称',rules.presetName); doc.set('字段',rules.fieldSchema.fields); doc.set('初值方案',rules.initials);
     const text = FIELD_PRESET_HEADER + '\n' + doc.toString();
-    // Keep exports inside the same safety limits as imports, including YAML structure limits.
     parseRulePreset(text);
     return text;
   }
@@ -1210,14 +1241,17 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
       if (serial(before) !== serial(after)) changes.push({kind:after ? 'field-edit' : 'field-retire',path:before.path,before,after:after || null});
     }
     for (const after of rules.fieldSchema.fields) if (!previous.fieldSchema.fields.some(field => field.id === after.id)) changes.push({kind:'field-add',path:after.path,before:null,after});
+    changes.push({kind:'preset-initials',path:[],before:{initials:previous.initials,initialChoice:previous.initialChoice},after:{initials:rules.initials,initialChoice:rules.initialChoice}});
     const planId = host.crypto.randomUUID();
     rulePresetPlan = {planId,rules,scope:fieldPlanScope(scope)};
-    return {planId,changes,summary:'将应用字段草稿；预设不携带初值、全局提示词、世界书引用或计算参数。当前状态留空并暂停注入，历史快照保留；请手动重新生成。'};
+    return {planId,changes,summary:rules.initialChoice ? '应用预设字段与初值方案，并以所选初值直接建立当前状态；历史快照保留。' : '应用预设字段与初值方案；当前选择无初值，状态留空、注入暂停，可稍后按剧情手动生成。历史快照保留。'};
   }
   function commitRulePreset(planId) {
     const plan = rulePresetPlan;
     if (!plan || plan.planId !== planId) throw Error('预设应用预览已失效，请重新预览。');
     const scope = checkFieldPlan(plan); assertPresetScope(scope.card,true);
+    const initial = C.chooseInitial(plan.rules), target = latestAI(scope.chat);
+    if (initial && (target < 0 || target !== scope.chat.length - 1)) throw Error('应用初值前请等待末尾 AI 正文完成；也可选择无初值。');
     rulePresetPlan = null;
     // Marker first: a failed storage write must never activate new rules over the old visible state.
     const snapshot = T.read(scope,activeRules()), next = C.clone(snapshot.doc);
@@ -1226,9 +1260,17 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
     try { persist({...stored,profiles:{...stored.profiles,[scope.card]:C.clone(plan.rules)}}); }
     catch (error) { refreshInjection(); renderState(); throw Error('预设配置未保存；当前显示已暂停，历史仍保留：' + error.message); }
     draftRules = C.clone(plan.rules); draftProfileKey = scope.card; rulesDirty = false;
+    if (initial) {
+      try {
+        const pending = T.read(scope,plan.rules), old = T.reconcile(snapshot.doc,scope.chat).current;
+        const seeded = T.append(pending,scope.chat,target,initial.state,[],{action:'preset-generation',initialId:initial.id,fieldSchema:C.clone(plan.rules.fieldSchema),...(old ? {backup:C.clone(old.state),...(old.fieldSchema ? {backupSchema:C.clone(old.fieldSchema)} : {})} : {})});
+        delete seeded.awaitingPresetGeneration;
+        T.commit(pending,seeded);
+      } catch (error) { refreshInjection(); renderState(); throw Error('预设已保存，但初值写入失败；当前保持留空，历史仍保留：' + error.message); }
+    }
     fillRuleOptions(); refreshInjection(); renderState();
-    status('预设已切换；当前状态留空，请手动重新生成。历史快照仍保留。');
-    return {applied:true};
+    status(initial ? '预设已应用，当前状态来自所选初值；历史快照仍保留。' : '预设已应用，选择无初值；当前状态留空，可手动生成。历史快照仍保留。');
+    return {applied:true,initialized:!!initial};
   }
   /* End rule preset operations. */
   function setFieldValue(id, value, expectedProfile = activeProfileKey()) {
@@ -1465,10 +1507,10 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
     ruleHelp.textContent = activeRule.startsWith('initial:') ? '初值编辑：保留原卡必需字段，可添加自定义变量；新增变量会在状态页自动展示。不要把当前聊天的状态当作所有新聊天初值。' : activeRule === 'snapshotTemplate' ? '正文状态模板：{state_json} 会被当前状态替换。不执行 EJS 或自定义代码。' : '原世界书内容已迁入。文本作为独立 API 的规则，不作为 JavaScript 执行。';
   }
   function fillRuleOptions() {
-    ruleSelect.replaceChildren(); initialChoice.replaceChildren(node('option', '请选择初值方案', { value: '' }));
+    ruleSelect.replaceChildren(); initialChoice.replaceChildren(node('option', '无初值', { value: '' }));
     draftRules.initials.forEach((item, i) => { ruleSelect.append(node('option', '变量初值 · ' + item.label, { value: 'initial:' + i })); initialChoice.append(node('option', item.label, { value: item.id })); });
     for (const [value, label] of [['updateRules', '通用与未匹配规则'], ['outputFormat', '变量输出格式'], ['snapshotTemplate', '发给正文模型的当前状态模板']]) ruleSelect.append(node('option', label, { value }));
-    if (![...ruleSelect.options].some(o => o.value === activeRule)) activeRule = 'initial:0';
+    if (![...ruleSelect.options].some(o => o.value === activeRule)) activeRule = draftRules.initials.length ? 'initial:0' : 'updateRules';
     ruleSelect.value = activeRule; initialChoice.value = draftRules.initialChoice; loadEditor();
   }
   function fillApi() {
@@ -1489,7 +1531,7 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
   }
   function saveRules() {
     if (busy) throw Error('请先等待或取消请求。');
-    const rules = C.validateRules(C.clone(draftRules)); C.snapshotText(rules.snapshotTemplate, C.parseYaml(rules.initials[0].text,rules.fieldSchema),rules.fieldSchema);
+    const rules = C.validateRules(C.clone(draftRules)); C.snapshotText(rules.snapshotTemplate, C.parseYaml(rules.initials[0]?.text ?? '{}',rules.fieldSchema),rules.fieldSchema);
     persistRules(rules); rulesDirty = false; refreshInjection(); status('规则已保存；当前聊天状态未被重置。');
   }
   function saveApi() {
@@ -1597,7 +1639,12 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
     const messages = C.buildMessages(rules, baseState, gatherContext(t, config.contextMessages), t.id, protagonistName(rules));
     const raw = await completion(messages, config, key, t);
     const turnText = T.transcript(identity().chat).filter(row => row.id > base.id && row.id <= t.id).map(row => row.body).join('\n');
-    const result = C.settleUpdate(baseState, C.parsePatch(raw), rules, turnText);
+    let result;
+    try { result = C.settleUpdate(baseState, C.parsePatch(raw), rules, turnText); }
+    catch (error) {
+      lastPatch = JSON.stringify({status:'rejected',targetMessageId:t.id,operationIndex:error.operationIndex ?? null,path:error.path || null,error:error.message,stateChanged:false},null,2);
+      throw error;
+    }
     if (!guard(t)) throw Error('请求期间聊天、正文、回复分支或配置改变，结果已丢弃。');
     if (host.localStorage.getItem(snapshot.key) !== snapshot.raw) throw Error('请求期间此存档被其他操作修改，结果已丢弃。');
     lastPatch = JSON.stringify({ settlement:result.settlement, appliedPatch:result.patch }, null, 2);
@@ -1878,7 +1925,8 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
     reset: resetLatest, restore: restoreReset, clear: clearChatState, cleanBranches,
     exportTimeline, importTimeline,
     exportState() { const s = identity(); download('男主状态-状态快照.json', { format: 'libei-state-snapshot-v1', chatId: s.chatId, messageId: selectedFloor(), data: readFloor(selectedFloor()) }); },
-    validateRules(value) { const checked = C.upgradeProfile(value); C.snapshotText(checked.snapshotTemplate, C.parseYaml(checked.initials[0].text,checked.fieldSchema),checked.fieldSchema); return checked; },
+    initialTemplate(schema, expectedProfile) { assertPresetScope(expectedProfile); return JSON.stringify(C.parseYaml('{}',C.F.validateSchema(schema)),null,2); },
+    validateRules(value) { const checked = C.upgradeProfile(value); C.snapshotText(checked.snapshotTemplate, C.parseYaml(checked.initials[0]?.text ?? '{}',checked.fieldSchema),checked.fieldSchema); return checked; },
     saveRules(value, expectedProfile) { if (expectedProfile !== undefined && expectedProfile !== activeProfileKey()) throw Error('角色已切换，旧草稿未保存。'); draftRules = C.upgradeProfile(value); draftProfileKey = activeProfileKey(); saveRules(); fillRuleOptions(); renderState(); },
     saveOptions(value) {
       if (busy || generating) throw Error('请等待生成结束。');

@@ -41,7 +41,7 @@ export interface UiState {
 }
 
 const PAGE_STORAGE_KEY = 'libei.v2.ui.page';
-const PAGE_IDS = ['state', 'rules', 'settings'];
+const PAGE_IDS = ['state', 'rules', 'context', 'settings'];
 function loadActivePage(): string {
   try {
     const id = localStorage.getItem(PAGE_STORAGE_KEY) || 'state';

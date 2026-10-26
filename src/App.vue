@@ -134,7 +134,7 @@ const windowStyle = computed(() => {
 
             <main class="bbs-body">
               <Transition name="bbs-page" mode="out-in">
-                <component :is="current.component" :key="current.id" />
+                <KeepAlive include="RuleEditor"><component :is="current.component" :key="current.id === 'rules' || current.id === 'context' ? 'rules-editor' : current.id" /></KeepAlive>
               </Transition>
             </main>
 
