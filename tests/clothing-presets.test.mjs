@@ -12,6 +12,11 @@ const {C,T} = sandbox.core, clone = value => JSON.parse(JSON.stringify(value));
 const stock = JSON.parse(await readFile(new URL('./fixtures/defaults.json',import.meta.url),'utf8')).rules;
 const modern = C.defaultRules(), legacy = C.upgradeProfile(stock);
 const chosen = rules => C.chooseInitial({...rules,initialChoice:rules.initials[0].id}).state;
+// 默认预设已换成身体/生理字段表；衣着布局迁移与钱财结算仍需要一套经典四层衣着夹具。
+const wornState={世界:{日期:'第1天',时间:'00:00',地点:'未记录'},主角:{钱财:0,穿着:{上装:{衣物:'未记录'},下装:{衣物:'未记录'},内裤:{衣物:'未记录'},鞋袜:{衣物:'未记录'}},随身物品:{},想法:'未记录'}};
+const wornRules=C.upgradeProfile({presetName:'衣着夹具',updateProtocol:2,protagonistName:'',systemPrompt:'',storyInstruction:'',initialChoice:'',
+  initials:[{id:'generic',label:'夹具初值',text:JSON.stringify(wornState)}],fieldSchema:C.F.infer(wornState),updateRules:'按实际经过的时间推进。',outputFormat:'[]',
+  snapshotTemplate:'当前状态：\n{state_json}',numericConfig:{version:1,hourlyGain:0,normalMin:10,normalMax:20,dreamMin:20,dreamMax:40,moneyMax:1000000000000}});
 const clothes = schema => schema.fields.filter(field => field.path[0]==='主角'&&field.path[1]==='穿着');
 const at = (schema,path) => schema.fields.find(field => field.path.join('/')===path);
 const checks = [];
@@ -19,27 +24,31 @@ const test = (name,fn) => {fn(); checks.push(name); console.log('PASS '+name);};
 const asyncTest = async (name,fn) => {await fn(); checks.push(name); console.log('PASS '+name);};
 const storage = () => {const values=new Map();return {values,getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)};};
 
-test('Modern default contains four correctly labelled clothing leaves and no physiology in state or prompts',()=>{
-  assert.deepEqual(clone(clothes(modern.fieldSchema).map(field=>field.label)),['上装','下装','内裤','鞋袜']);
+test('Modern default carries the body/physiology table verbatim and settles semen only',()=>{
+  const fields=modern.fieldSchema.fields,lookup=path=>at(modern.fieldSchema,path);
+  assert.equal(fields.length,30);
+  assert.deepEqual(clone([...new Set(fields.map(field=>field.group))]),['场景','外观','生理','性征','内心']);
   const state=chosen(modern);
-  assert.deepEqual(Object.keys(state.主角.穿着),['上装','下装','内裤','鞋袜']);
-  assert.ok(Object.values(state.主角.穿着).every(slot=>Object.keys(slot).join()==='衣物'&&slot.衣物==='未记录'));
+  assert.equal(state.世界.当前场景发生地,'城中村七平米带隔断单间');
+  assert.equal(state.主角.精液,85);assert.equal(state.主角.实时心率,115);
+  assert.equal(Object.hasOwn(state.主角,'钱财'),false);
+  assert.equal(state.世界.日期,'第1天');assert.equal(state.世界.时间,'00:00');
+  assert.equal(lookup('世界/日期').system,'date');assert.equal(lookup('世界/时间').system,'time');
   assert.equal(modern.initialChoice,'');assert.equal(modern.presetName,'默认预设');assert.equal(legacy.presetName,'黎北预设');
-  const text=JSON.stringify([state,C.buildMessages(modern,state,[],0),C.storyPrompt(modern,state,true)]);
-  assert.doesNotMatch(text,/精液|元精|阳具|遮露|内衬/u);
-  assert.ok(modern.fieldSchema.fields.every(field=>field.rule.trim()));
-  assert.equal(new Set(clothes(modern.fieldSchema).map(field=>field.rule)).size,4);
-  assert.match(at(modern.fieldSchema,'主角/穿着/上装/衣物').rule,/T恤、衬衫或外套/u);
-  assert.match(at(modern.fieldSchema,'主角/穿着/下装/衣物').rule,/长裤、短裤/u);
-  assert.match(at(modern.fieldSchema,'主角/穿着/内裤/衣物').rule,/不从外裤臆测/u);
-  assert.match(at(modern.fieldSchema,'主角/穿着/鞋袜/衣物').rule,/不补写不可见/u);
-  assert.match(at(modern.fieldSchema,'主角/随身物品').rule,/正文实际出现.*手机、钥匙、证件/u);
-  assert.match(at(modern.fieldSchema,'主角/钱财').rule,/人民币整元/u);
+  assert.ok(fields.every(field=>field.rule.trim()));
+  const energy=fields.find(field=>field.system==='energy');
+  assert.equal(energy.path.join('/'),'主角/精液');assert.equal(energy.updateMode,'program');assert.equal(energy.type,'number');
+  assert.equal(lookup('主角/满溢').type,'enum');assert.equal(lookup('主角/满溢').label,'_满溢');
+  assert.equal(lookup('主角/满溢').path.join('/'),'主角/满溢');
+  assert.match(lookup('主角/第一人称内心想法').rule,/心理活动/u);
+  assert.match(lookup('主角/实时心率').rule,/情绪紧绷/u);
+  assert.match(lookup('主角/精液').rule,/梦遗扣20~40/u);
+  assert.match(lookup('主角/着装覆盖状态').rule,/穿脱衣物/u);
   assert.equal(JSON.stringify(C.upgradeProfile(modern)),JSON.stringify(modern));
 });
 
 test('One-time clothing migration preserves subsequent custom labels and rules through save/export/reload',()=>{
-  const draft=clone(modern),shirt=at(draft.fieldSchema,'主角/穿着/上装/衣物');
+  const draft=clone(wornRules),shirt=at(draft.fieldSchema,'主角/穿着/上装/衣物');
   assert.equal(draft.clothingLayoutVersion,1);shirt.label='今天的外套';shirt.rule='只记录正文明确穿上的外套，不从天气推断。';
   const before=clone(shirt),saved=C.presetRules(draft),reloaded=C.upgradeProfile(clone(saved));
   assert.deepEqual(clone(at(reloaded.fieldSchema,'主角/穿着/上装/衣物')),before);
@@ -55,27 +64,35 @@ test('Retiring obsolete shared clothing prose keeps unrelated single-paragraph r
   assert.equal(generic.updateRules,original.replaceAll('衣物与遮露','上装、下装、内裤和鞋袜'));
   for(const required of ['不将其他人物的状态混入','HH:MM 时间','钱财和消耗用事件报告','跨月前应明确年份'])assert.ok(generic.updateRules.includes(required));
   assert.ok(generic.clothingArchive.rules.some(rule=>rule.id==='shared'&&rule.text===original));
-  const old=clone(modern);delete old.clothingLayoutVersion;
+  const old=clone(wornRules);delete old.clothingLayoutVersion;
   old.updateRules='按实际经过的时间推进。旧遮露规则取消。钱财只能报告明确金额。';
   const upgraded=C.upgradeProfile(old);
   assert.equal(upgraded.updateRules,'按实际经过的时间推进。钱财只能报告明确金额。');
   assert.ok(upgraded.clothingArchive.rules.some(rule=>rule.text===old.updateRules));
 });
 
-test('Modern money remains integer and deterministic without energy, formula or body fields',()=>{
-  const state=chosen(modern);state.主角.钱财=100;
-  const result=C.settleUpdate(state,[{op:'replace',path:'/世界/时间',value:'01:00'},{op:'money',direction:'expense',amount:15,evidence:'花了十五元'}],modern,'花了十五元');
+test('Worn-layout fixture keeps money integer and deterministic without energy, formula or body fields',()=>{
+  const state=chosen(wornRules);state.主角.钱财=100;
+  const result=C.settleUpdate(state,[{op:'replace',path:'/世界/时间',value:'01:00'},{op:'money',direction:'expense',amount:15,evidence:'花了十五元'}],wornRules,'花了十五元');
   assert.equal(result.state.主角.钱财,85);assert.equal(result.settlement.gain,0);
   for(const key of ['精液','精液算式','阳具'])assert.equal(Object.hasOwn(result.state.主角,key),false);
-  assert.throws(()=>C.settleUpdate(state,[{op:'money',direction:'expense',amount:1.5,evidence:'花了1.5元'}],modern,'花了1.5元'),/整数/u);
-  assert.throws(()=>C.settleUpdate(state,[{op:'release',kind:'awake',amount:10,evidence:'旧事件'}],modern,'旧事件'),/停用/u);
-  const raw=clone(modern);delete raw.fieldSchema;
-  assert.equal(C.upgradeProfile(raw).fieldSchema.fields.length,modern.fieldSchema.fields.length);
+  assert.throws(()=>C.settleUpdate(state,[{op:'money',direction:'expense',amount:1.5,evidence:'花了1.5元'}],wornRules,'花了1.5元'),/整数/u);
+  assert.throws(()=>C.settleUpdate(state,[{op:'release',kind:'awake',amount:10,evidence:'旧事件'}],wornRules,'旧事件'),/停用/u);
+  const raw=clone(wornRules);delete raw.fieldSchema;
+  assert.equal(C.upgradeProfile(raw).fieldSchema.fields.length,wornRules.fieldSchema.fields.length);
   assert.equal(C.settleUpdate(state,[],raw,'').state.主角.钱财,100);
+});
+test('Modern default no longer accepts money events and settles release only',()=>{
+  const state=chosen(modern);
+  assert.throws(()=>C.settleUpdate(state,[{op:'money',direction:'expense',amount:5,evidence:'花了五元'}],modern,'花了五元'),/停用/u);
+  const result=C.settleUpdate(state,[{op:'release',kind:'dream',amount:30,evidence:'梦遗'}],modern,'他在梦里泄了，梦遗。');
+  assert.equal(result.state.主角.精液,55);assert.equal(Object.hasOwn(result.state.主角,'钱财'),false);
+  const grown=C.settleUpdate(state,[{op:'replace',path:'/世界/时间',value:'03:00'}],modern,'');
+  assert.equal(modern.numericConfig.hourlyGain,6);assert.equal(grown.state.主角.精液,103);assert.equal(grown.settlement.gain,18);
 });
 
 test('Shoe aliases bridge only missing target paths in memory and explicit active values win',()=>{
-  for(const [from,to,opposite,target] of [[legacy,modern,'鞋履','鞋袜'],[modern,legacy,'鞋袜','鞋履']]) {
+  for(const [from,to,opposite,target] of [[legacy,wornRules,'鞋履','鞋袜'],[wornRules,legacy,'鞋袜','鞋履']]) {
     const state=chosen(from);state.主角.穿着[opposite].衣物='已记录的鞋';const before=JSON.stringify(state);
     const prepared=C.prepareProfileState(state,to.fieldSchema);
     assert.equal(prepared.state.主角.穿着[target].衣物,'已记录的鞋');assert.equal(JSON.stringify(state),before);
@@ -155,8 +172,8 @@ test('Schema-less history keeps formerly accepted fractional legacy money and co
   const old=C.parseYaml(stock.initials[0].text);old.主角.钱财=1.5;
   // Schema-less validation remains backward compatible; a modern inferred money field is integer-only.
   assert.equal(C.validateState(old).主角.钱财,1.5);
-  const state=chosen(modern);state.主角.穿着.鞋履={衣物:'旧路径的鞋'};
-  const rules=clone(modern);delete rules.clothingLayoutVersion;rules.fieldSchema=C.F.infer(state);rules.initials[0].text=JSON.stringify(state);
+  const state=chosen(wornRules);state.主角.穿着.鞋履={衣物:'旧路径的鞋'};
+  const rules=clone(wornRules);delete rules.clothingLayoutVersion;rules.fieldSchema=C.F.infer(state);rules.initials[0].text=JSON.stringify(state);
   const upgraded=C.upgradeProfile(rules);
   assert.equal(clothes(upgraded.fieldSchema).length,4);
   assert.ok(at(upgraded.fieldSchema,'主角/穿着/鞋履/衣物'));assert.equal(at(upgraded.fieldSchema,'主角/穿着/鞋袜/衣物'),undefined);
@@ -173,7 +190,7 @@ test('Historical explicit schema is cloned while nonclothing field configuration
 test('Plain-text presets round-trip fields and initial schemes while excluding other configuration',()=>{
   const dirty={...clone(modern),config:{apiKey:'SECRET'},rememberedKey:'SECRET',chat:{messages:['HISTORY']},arbitrary:'SECRET'};
   dirty.initials[0].apiKey='SECRET';
-  at(dirty.fieldSchema,'主角/想法').rule='含冒号: 和 # 及换行\n  缩进与中文\n\n';
+  at(dirty.fieldSchema,'主角/第一人称内心想法').rule='含冒号: 和 # 及换行\n  缩进与中文\n\n';
   const text=C.rulePresetDocument(dirty,'  现代日常  ');
   assert.ok(text.startsWith('# 男主状态变量预设 v2\n'));assert.doesNotMatch(text,/SECRET|HISTORY|apiKey|rememberedKey|initials|systemPrompt|numericConfig|worldbookReferences/u);
   const parsed=C.parseRulePreset(text);assert.equal(parsed.name,'现代日常');assert.deepEqual(clone(parsed.rules),clone(C.fieldPreset({...dirty,presetName:'现代日常'})));
@@ -185,15 +202,15 @@ test('Plain-text presets round-trip fields and initial schemes while excluding o
 
 test('Initialization accepts ordinary field evidence without weakening program numeric evidence',()=>{
   const rules=C.defaultRules(),fields=C.presetGenerationFields(rules),values=Object.fromEntries(fields.map(field=>[field.id,clone(field.default)]));
-  const location=at(rules.fieldSchema,'世界/地点'),money=fields.find(field=>field.system==='money');
-  values[location.id]='门口';const context=[{content:'站在门口，钱包里有四十二元。'}];
+  const location=at(rules.fieldSchema,'世界/当前场景发生地'),semen=fields.find(field=>field.system==='energy');
+  values[semen.id]=0;values[location.id]='门口';const context=[{content:'站在门口，裤裆里还憋着。'}];
   const parse=evidence=>C.parsePresetState(JSON.stringify({values,evidence}),rules,context);
-  assert.equal(parse({[location.id]:'站在门口'}).世界.地点,'门口');
-  values[money.id]=42;
+  assert.equal(parse({[location.id]:'站在门口'}).世界.当前场景发生地,'门口');
+  values[semen.id]=42;
   assert.throws(()=>parse({[location.id]:'站在门口'}),/程序数值初始化缺少/u);
-  assert.throws(()=>parse({[money.id]:'不在正文中的引文'}),/程序数值初始化缺少/u);
-  assert.equal(parse({[location.id]:'站在门口',[money.id]:'钱包里有四十二元'}).主角.钱财,42);
-  for(const id of ['字段ID','钱财','/主角/钱财'])assert.throws(()=>parse({[id]:'钱包里有四十二元'}),error=>error.message.includes(id)&&error.message.includes('未允许的字段 ID'));
+  assert.throws(()=>parse({[semen.id]:'不在正文中的引文'}),/程序数值初始化缺少/u);
+  assert.equal(parse({[location.id]:'站在门口',[semen.id]:'裤裆里还憋着'}).主角.精液,42);
+  for(const id of ['字段ID','精液','/主角/精液'])assert.throws(()=>parse({[id]:'裤裆里还憋着'}),error=>error.message.includes(id)&&error.message.includes('未允许的字段 ID'));
   assert.throws(()=>parse({[location.id]:{text:'站在门口'}}),/初始化引文须为/u);
   assert.throws(()=>parse({[location.id]:'x'.repeat(501)}),/初始化引文须为/u);
 });
@@ -207,7 +224,7 @@ test('Preset schemes validate independently, support zero schemes and accept old
   assert.equal(C.parseRulePreset(old).rules.initials.length,0);
   assert.equal(C.fieldPreset({presetName:'旧库',fieldSchema:modern.fieldSchema}).initials.length,0);
   const duplicate=clone(modern);duplicate.initials.push(clone(duplicate.initials[0]));assert.throws(()=>C.fieldPreset(duplicate),/ID/u);
-  const invalid=clone(modern);invalid.initials[0].text='世界: {时间: 不是时间}';assert.throws(()=>C.fieldPreset(invalid));
+  const invalid=clone(modern);invalid.initials[0].text='主角: {实时心率: 很快}';assert.throws(()=>C.fieldPreset(invalid));
   const selected=C.parseRulePreset(C.rulePresetDocument({...legacy,initialChoice:legacy.initials[1].id},'两套初值'));
   assert.equal(selected.rules.initials.length,2);assert.equal(Object.hasOwn(selected.rules,'initialChoice'),false);
 });
@@ -286,13 +303,13 @@ await asyncTest('Preset replacement needs its own preview/commit, stays blank un
   assert.equal(api.snapshot().timelineBytes,after.timelineBytes);assert.equal(api.snapshot().injection.enabled,false);
   api.set('selection',0);assert.equal(api.view().awaitingPresetGeneration,true);assert.ok(api.view().state);assert.equal(api.snapshot().timelineBytes,after.timelineBytes);
   api.set('selection',null);await api.automatic();assert.equal(api.snapshot().requests.length,0);assert.equal(api.view().state,null);
-  const values=Object.fromEntries(C.presetGenerationFields(modern).map(field=>[field.id,field.system==='date'?'第2天':field.system==='time'?'12:00':field.type==='integer'||field.type==='number'?0:field.type==='object'?{}:field.type==='array'?[]:field.type==='boolean'?false:field.type==='enum'?field.options[0]:'新生成'+field.label]));
+  const values=Object.fromEntries(C.presetGenerationFields(modern).map(field=>[field.id,field.system==='date'?'第2天':field.system==='time'?'12:00':field.type==='integer'||field.type==='number'?(field.min??0):field.type==='object'?{}:field.type==='array'?[]:field.type==='boolean'?false:field.type==='enum'?field.options[0]:'新生成'+field.label]));
   api.set('reply',JSON.stringify({values}));const generated=await api.generatePresetState('role.png');
   assert.equal(generated.generated,true);const final=api.snapshot();
   assert.equal(final.timeline.awaitingPresetGeneration,undefined);assert.equal(api.view().awaitingPresetGeneration,false);
   assert.deepEqual(final.timeline.nodes.slice(0,before.timeline.nodes.length),before.timeline.nodes);
   assert.equal(final.timeline.nodes.at(-1).action,'preset-generation');assert.deepEqual(final.timeline.nodes.at(-1).backup,before.timeline.current.state);
-  assert.equal(api.view().state.主角.钱财,0);assert.equal(api.view().state.主角.穿着.鞋袜.衣物,'新生成鞋袜');assert.equal(final.injection.enabled,true);
+  assert.equal(api.view().state.主角.精液,0);assert.equal(api.view().state.主角.第一人称内心想法,'新生成第一人称内心想法');assert.equal(final.injection.enabled,true);
   assert.equal(JSON.parse(final.requests[0].findLast(entry=>entry.role==='user').content).previous_state,null);
   const schemaRows=JSON.parse(final.requests[0].find(entry=>entry.content.startsWith('[{')).content);
   assert.ok(schemaRows.every(field=>field.required&&!Object.hasOwn(field,'default')));
@@ -300,9 +317,9 @@ await asyncTest('Preset replacement needs its own preview/commit, stays blank un
 
 test('Applying a chosen initial creates one new checkpoint with no model request and keeps history',()=>{
   const api=harness(),rules=clone(modern);rules.initialChoice=rules.initials[0].id;
-  const initial=JSON.parse(rules.initials[0].text);initial.主角.钱财=73;rules.initials[0].text=JSON.stringify(initial);
+  const initial=JSON.parse(rules.initials[0].text);initial.主角.精液=73;rules.initials[0].text=JSON.stringify(initial);
   const before=api.snapshot(),plan=api.previewRulePreset(rules,'role.png');const result=api.commitRulePreset(plan.planId),after=api.snapshot();
-  assert.equal(result.initialized,true);assert.equal(api.view().state.主角.钱财,73);assert.equal(api.view().awaitingPresetGeneration,false);
+  assert.equal(result.initialized,true);assert.equal(api.view().state.主角.精液,73);assert.equal(api.view().awaitingPresetGeneration,false);
   assert.deepEqual(after.timeline.nodes.slice(0,before.timeline.nodes.length),before.timeline.nodes);
   assert.equal(after.timeline.nodes.length,before.timeline.nodes.length+1);assert.equal(after.timeline.nodes.at(-1).initialId,rules.initialChoice);
   assert.equal(after.requests.length,0);assert.equal(after.injection.enabled,true);
@@ -314,6 +331,10 @@ test('Preset plans reject stale profile/chat/transcript/config/selection/revisio
   }
   for(const key of ['busy','generating']){const api=harness();api.set(key,true);assert.throws(()=>api.previewRulePreset(modern,'role.png'));assert.throws(()=>api.saveRulePreset('name',modern,'role.png'));}
   const api=harness();api.set('writable',false);assert.throws(()=>api.previewRulePreset(modern,'role.png'));assert.throws(()=>api.saveRulePreset('name',modern,'role.png'));
+});
+await asyncTest('Repository preset document stays equal to the built-in default preset',async()=>{
+  const text=await readFile(new URL('../presets/default-preset-v3.yaml',import.meta.url),'utf8');
+  assert.deepEqual(clone(C.parseRulePreset(text).rules),clone(C.fieldPreset(modern)));
 });
 console.log('Clothing/preset engine checks: '+checks.length+' passed; in-memory only, no real SillyTavern.');
 

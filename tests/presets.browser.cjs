@@ -19,7 +19,7 @@ const checks=[];
   const applyPreset=async()=>{await click('保存规则');await wait("!__root.querySelector('.libei-rule-actions .bbs-btn-primary').disabled");assert.equal(await E("!!__root.querySelector('[data-schema-review]')"),false)};
   const errorFrom=body=>E(`(async()=>{try{${body};return ''}catch(error){return error.message}})()`);
   const importText=async text=>{await input('[data-preset-text]',text);await tap('[data-action=import-rule-preset]')};
-  const wearFields=s=>s.rules.fieldSchema.fields.filter(field=>field.path[0]==='主角'&&field.path[1]==='穿着'&&field.enabled);
+  const wearFields=s=>s.rules.fieldSchema.fields.filter(field=>field.path[0]==='主角'&&field.path[1]==='着装覆盖状态'&&field.enabled);
   const generationValues=async()=>E(`(()=>{const rules=__libeiV2App.api.snapshot().rules,fields=rules.fieldSchema.fields.filter(field=>field.enabled&&(field.updateMode==='ai'||['money','energy'].includes(field.system))),values={};
     for(const field of fields){const path=field.path,key=path.join('/');
       if(field.system==='date')values[field.id]='2026-10-25';
@@ -27,9 +27,8 @@ const checks=[];
       else if(field.system==='money')values[field.id]=42;
       else if(field.system==='energy')values[field.id]=0;
       else if(path[0]==='世界')values[field.id]='公司楼下的便利店门口';
-      else if(path[1]==='穿着')values[field.id]='NEW_'+path[2]+'_衣物';
-      else if(path[1]==='随身物品')values[field.id]={手机:'电量 60%'};
-      else if(path[1]==='想法')values[field.id]='刚下班，想着晚饭吃什么。';
+      else if(path[1]==='着装覆盖状态')values[field.id]={上身:'NEW_上身',下身:'NEW_下身',内裤:'NEW_内裤'};
+      else if(path[1]==='第一人称内心想法')values[field.id]='刚下班，想着晚饭吃什么。';
       else if(field.type==='string')values[field.id]='未记录';
       else if(field.type==='integer'||field.type==='number')values[field.id]=0;
       else if(field.type==='boolean')values[field.id]=false;
@@ -42,26 +41,30 @@ const checks=[];
   await wait('__libeiV2App.api.snapshot().writerReady');
   await E(`__previewContext.characters[0]={name:'现代演示',avatar:'modern-ui.png'};__previewContext.name2='现代演示';__chatId='modern-chat';__previewContext.chat=[{is_user:false,is_system:false,mes:'PRESET_BROWSER_CHAT_BODY_987 ${moneyEvidence}',swipe_id:0}];__emit('CHAT_CHANGED')`);
   await wait("__libeiV2App.api.snapshot().profileKey==='modern-ui.png'");await open('rules');await wait("__root.querySelector('[data-preset-select]')?.options.length>=2");
-  await check('New roles get a modern default; both built-ins have the user-requested names',async()=>{
+  await check('New roles get the body/physiology default; both built-ins have the user-requested names',async()=>{
    const s=await snap();assert.equal(s.rules.presetName,'默认预设');assert.equal(s.rules.initialChoice,'');assert.equal(s.state,null);
-   assert.deepEqual(wearFields(s).map(field=>field.label),['上装','下装','内裤','鞋袜']);
-   assert.equal(s.rules.fieldSchema.fields.some(field=>['精液','精液算式','阳具','遮露','内衬'].some(part=>field.path.includes(part))),false);
+   assert.equal(s.rules.fieldSchema.fields.length,30);
+   assert.deepEqual(wearFields(s).map(field=>field.label),['着装覆盖状态']);
+   const energy=s.rules.fieldSchema.fields.filter(field=>field.system==='energy');
+   assert.equal(energy.length,1);assert.equal(energy[0].path.join('/'),'主角/精液');assert.equal(energy[0].updateMode,'program');
    const bytes=await memory();const list=await E('__libeiV2App.api.listRulePresets()');assert.deepEqual(list.filter(p=>p.builtin).map(p=>p.label),['默认预设','黎北预设']);assert.equal(await memory(),bytes);
   });
-  await E("(()=>{const rules=__libeiV2App.api.snapshot().rules,state=JSON.parse(rules.initials[0].text);state.世界={日期:'2026-10-20',时间:'08:30',地点:'公寓客厅'};state.主角.钱财=1280;for(const [slot,text] of Object.entries({上装:'灰色连帽卫衣',下装:'深色牛仔裤',内裤:'棉质四角内裤',鞋袜:'白袜与运动鞋'}))state.主角.穿着[slot].衣物=text;state.主角.随身物品={手机:'电量 82%',钥匙:'家门钥匙'};state.主角.想法='出门前确认手机和钥匙都带齐了。';rules.initials[0].text=JSON.stringify(state,null,2);rules.initialChoice='generic';__libeiV2App.api.saveRules(rules,'modern-ui.png')})()");
+  await E("(()=>{const rules=__libeiV2App.api.snapshot().rules,state=JSON.parse(rules.initials[0].text);state.世界={日期:'2026-10-20',时间:'08:30',当前场景发生地:'公寓客厅'};state.主角.着装覆盖状态={上身:'灰色连帽卫衣',下身:'深色牛仔裤',内裤:'棉质四角内裤'};state.主角.实时心率=88;state.主角.第一人称内心想法='出门前确认手机和钥匙都带齐了。';rules.initials[0].text=JSON.stringify(state,null,2);rules.initialChoice='generic';__libeiV2App.api.saveRules(rules,'modern-ui.png')})()");
   await open('state');
-  await check('Modern state shows four distinct clothing labels without coverage or physiology rows',async()=>{
-   const s=await snap();assert.equal(s.state.主角.钱财,1280);
+  await check('Modern state shows one clothing object plus body rows without the retired four-layer labels',async()=>{
+   const s=await snap();assert.equal(s.state.主角.实时心率,88);
    const labels=await E("[...__root.querySelectorAll('[data-field-value] dt strong')].map(el=>el.textContent)");
-   for(const label of ['上装','下装','内裤','鞋袜'])assert.equal(labels.filter(value=>value===label).length,1);
-   for(const label of ['衣物','内衬','遮露','元精','元精算式','阳具'])assert.ok(!labels.includes(label));
+   for(const label of ['着装覆盖状态','实时心率','精液','_满溢'])assert.equal(labels.filter(value=>value===label).length,1);
+   for(const label of ['上装','下装','鞋袜','遮露','内衬'])assert.ok(!labels.includes(label));
    await cdp.send('Emulation.setDeviceMetricsOverride',{width:1100,height:1200,deviceScaleFactor:1,mobile:false});await screenshot('50-modern-default-state.png');
   });
   await open('rules');
-  await check('Modern update and story projections contain field rules without legacy physiology instructions',async()=>{
+  await check('Modern update and story projections carry the preset field rules without retired clothing instructions',async()=>{
    const bytes=await memory(),count=await calls();const p=await E("__libeiV2App.api.previewContext(__libeiV2App.api.snapshot().rules,{profileKey:'modern-ui.png'})");
-   const text=JSON.stringify(p.update.messages)+p.story.content;for(const retired of ['精液','元精','阳具','遮露','内衬'])assert.ok(!text.includes(retired),retired);
-   for(const modern of ['上装','下装','内裤','鞋袜','人民币'])assert.ok(text.includes(modern));assert.equal(await memory(),bytes);assert.equal(await calls(),count);
+   const text=JSON.stringify(p.update.messages)+p.story.content;
+   for(const retired of ['遮露','内衬','上装','鞋袜'])assert.ok(!text.includes(retired),retired);
+   for(const live of ['着装覆盖状态','实时心率','精液','release'])assert.ok(text.includes(live),live);
+   assert.equal(await memory(),bytes);assert.equal(await calls(),count);
   });
   await check('Loading a preset loads its own initial schemes, selects none and only changes an unsaved draft',async()=>{
    const bytes=await memory(),before=(await snap()).rules;await load('libei');
@@ -76,11 +79,11 @@ const checks=[];
    customId=(await E('__libeiV2App.api.listRulePresets()')).find(p=>p.label==='城市通勤').id;assert.ok(customId.startsWith('user-'));
    assert.deepEqual((await snap()).rules,before);assert.deepEqual((await doc()).nodes,nodes);assert.equal(await calls(),0);
   });
-  const locationId=(await snap()).rules.fieldSchema.fields.find(field=>field.path.join('/')==='世界/地点').id;
+  const locationId=(await snap()).rules.fieldSchema.fields.find(field=>field.path.join('/')==='世界/当前场景发生地').id;
   const ruleSelector=`[data-field-id="${locationId}"] [data-field-prop=rule]`;
   let exported;
   await check('Page export shows copyable field text without downloading files or including other configuration',async()=>{
-   const bytes=await memory();await input(ruleSelector,'地点按本轮实际移动更新。DRAFT_RULE_EXPORT_SENTINEL');
+   const bytes=await memory();await input(ruleSelector,'场景按本轮实际移动更新。DRAFT_RULE_EXPORT_SENTINEL');
    await E("window.__nativeObjectURL=URL.createObjectURL;URL.createObjectURL=()=>{throw Error('Unexpected file download')};__previewContext.extensionSettings.libei_status_v2.__testSecret='PRIVATE_API_TOKEN_SENTINEL'");
    await tap('[data-action=export-rule-preset]');await wait("__root.querySelector('[data-preset-text]').value.includes('DRAFT_RULE_EXPORT_SENTINEL')");exported=await E("__root.querySelector('[data-preset-text]').value");
    assert.ok(exported.startsWith('# 男主状态变量预设 v2\n'));assert.ok(exported.includes('DRAFT_RULE_EXPORT_SENTINEL'));
@@ -124,11 +127,11 @@ const checks=[];
   });
   await check('Manual generation builds a fresh state from the new preset without old values or LiBei opening data',async()=>{
    const oldNodes=(await doc()).nodes,values=await generationValues();
-   const moneyField=(await snap()).rules.fieldSchema.fields.find(field=>field.system==='money');
-   await mockGeneration({values,evidence:{[moneyField.id]:moneyEvidence,[locationId]:'PRESET_BROWSER_CHAT_BODY_987'}});await click('手动生成当前状态');
+   const energyField=(await snap()).rules.fieldSchema.fields.find(field=>field.system==='energy');values[energyField.id]=42;
+   await mockGeneration({values,evidence:{[energyField.id]:moneyEvidence,[locationId]:'PRESET_BROWSER_CHAT_BODY_987'}});await click('手动生成当前状态');
    await wait("__libeiV2App.api.snapshot().state && !__libeiV2App.api.snapshot().awaitingPresetGeneration");
-   const s=await snap();assert.equal(s.state.主角.钱财,42);assert.notEqual(s.state.主角.钱财,1280);assert.equal(s.state.主角.穿着.上装.衣物,'NEW_上装_衣物');assert.equal(s.state.主角.穿着.鞋袜.衣物,'NEW_鞋袜_衣物');
-   assert.equal(s.state.主角.想法,'刚下班，想着晚饭吃什么。');assert.deepEqual(s.state.主角.随身物品,{手机:'电量 60%'});
+   const s=await snap();assert.equal(s.state.主角.精液,42);assert.notEqual(s.state.主角.精液,85);assert.equal(s.state.主角.着装覆盖状态.上身,'NEW_上身');
+   assert.equal(s.state.主角.第一人称内心想法,'刚下班，想着晚饭吃什么。');
    assert.deepEqual((await doc()).nodes.slice(0,oldNodes.length),oldNodes);
    const added=(await doc()).nodes.slice(oldNodes.length);assert.equal(added.length,1);assert.equal(added[0].action,'preset-generation');assert.equal(added[0].id,0);assert.equal(added[0].parent,oldNodes.find(node=>node.id===0)?.parent??null);
    assert.ok(await E('window.__storyPrompt.includes("公司楼下的便利店门口")'));
@@ -171,7 +174,7 @@ const checks=[];
    const initial=(await E('__libeiV2App.api.listRulePresets()')).find(p=>p.id==='modern').rules.initials[0];
    await E(`[...__root.querySelectorAll('.bbs-select-option')].find(el=>el.textContent.includes(${JSON.stringify(initial.label)})).click()`);
    const nodes=(await doc()).nodes,count=await calls();await applyPreset();
-   const s=await snap();assert.equal(s.awaitingPresetGeneration,false);assert.equal(s.rules.initialChoice,initial.id);assert.equal(s.state.主角.钱财,JSON.parse(initial.text).主角.钱财);
+   const s=await snap();assert.equal(s.awaitingPresetGeneration,false);assert.equal(s.rules.initialChoice,initial.id);assert.equal(s.state.主角.精液,JSON.parse(initial.text).主角.精液);
    assert.equal(await calls(),count);assert.deepEqual((await doc()).nodes.slice(0,nodes.length),nodes);assert.equal((await doc()).nodes.at(-1).initialId,initial.id);
   });
   await check('Loading again selects no initial and applying keeps current state blank without calling a model',async()=>{
@@ -191,16 +194,16 @@ const checks=[];
    const values=await generationValues(),moneyField=(await snap()).rules.fieldSchema.fields.find(field=>field.system==='money');
    await mockGeneration({values,evidence:moneyField?{[moneyField.id]:moneyEvidence}:{}});await click('手动生成当前状态');
    await wait("!!__libeiV2App.api.snapshot().state && !__libeiV2App.api.snapshot().awaitingPresetGeneration");
-   assert.equal((await snap()).state.主角.穿着.鞋袜.衣物,'NEW_鞋袜_衣物');await open('rules');
+   assert.equal((await snap()).state.主角.着装覆盖状态.上身,'NEW_上身');await open('rules');
   });
   await E("__root.querySelector('.libei-rules-page').scrollIntoView({block:'start'})");await screenshot('51-rule-presets-desktop.png');
   for(const width of [390,320]){
    await cdp.send('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:true});
-   await check(width+'px preset controls and four clothing fields stay within the viewport',async()=>{
+   await check(width+'px preset controls and the clothing object stay within the viewport',async()=>{
     await E("__root.querySelector('[data-rule-presets]').scrollIntoView({block:'start'})");assert.ok(await E("['[data-rule-presets]','.libei-rules-page','.bbs-body'].every(selector=>{const el=__root.querySelector(selector);return el.scrollWidth<=el.clientWidth+1})"));await screenshot('52-rule-presets-'+width+'.png');
     await open('state');const id=wearFields(await snap())[0].id;await E(`__root.querySelector('[data-field-value="${id}"]').scrollIntoView({block:'start'})`);
-    const labels=await E("[...__root.querySelectorAll('[data-field-value] dt strong')].map(el=>el.textContent)");for(const label of ['上装','下装','内裤','鞋袜'])assert.ok(labels.includes(label));assert.ok(!labels.includes('遮露'));
-    await screenshot('53-modern-clothing-'+width+'.png');await open('rules');await wait("__root.querySelector('[data-preset-select]')?.options.length>=2");
+    const labels=await E("[...__root.querySelectorAll('[data-field-value] dt strong')].map(el=>el.textContent)");for(const label of ['着装覆盖状态','实时心率'])assert.ok(labels.includes(label));assert.ok(!labels.includes('遮露'));
+    await screenshot('53-modern-fields-'+width+'.png');await open('rules');await wait("__root.querySelector('[data-preset-select]')?.options.length>=2");
    });
   }
   await check('No uncaught browser errors or external requests were needed for presets',async()=>{assert.deepEqual(errors,[]);assert.deepEqual(external,[])});

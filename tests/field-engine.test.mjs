@@ -209,14 +209,14 @@ test('Reference selectors store stable validated book/UID pairs, never rule pros
   }
 });
 test('Diagnostics identify the original operation index and declared type after mixed numeric events',()=>{
-  const rules=C.defaultRules();rules.fieldSchema.fields.push({id:'diagnostic-meter',path:['主角','自定义','刻度'],label:'刻度',group:'自定义',type:'integer',default:0,min:0,max:10,enabled:true,visible:true,updateMode:'ai',rule:'按事实维护。'});
+  const rules=C.libeiRules();rules.fieldSchema.fields.push({id:'diagnostic-meter',path:['主角','自定义','刻度'],label:'刻度',group:'自定义',type:'integer',default:0,min:0,max:10,enabled:true,visible:true,updateMode:'ai',rule:'按事实维护。'});
   const checked=C.upgradeProfile(rules),state=C.chooseInitial({...checked,initialChoice:'generic'}).state;state.主角.钱财=10;const before=JSON.stringify(state);
   const commands=[{op:'money',direction:'expense',amount:1,evidence:'花了一元'},{op:'replace',path:'/世界/地点',value:'门口'},{op:'replace',path:'/主角/自定义/刻度',value:'3'}];
   assert.throws(()=>C.settleUpdate(state,commands,checked,'花了一元'),error=>error.operationIndex===3&&error.path==='/主角/自定义/刻度'&&error.message.includes('刻度')&&error.message.includes('要求 integer')&&error.message.includes('实际 string'));
   assert.equal(JSON.stringify(state),before);
 });
 test('Diagnostics explain program writes and insufficient funds without changing the patch contract',()=>{
-  const rules=C.defaultRules(),state=C.chooseInitial({...rules,initialChoice:'generic'}).state;state.主角.钱财=10;const before=JSON.stringify(state);
+  const rules=C.libeiRules(),state=C.chooseInitial({...rules,initialChoice:'generic'}).state;state.主角.钱财=10;const before=JSON.stringify(state);
   const first={op:'replace',path:'/世界/地点',value:'门口'};
   assert.throws(()=>C.settleUpdate(state,[first,{op:'replace',path:'/主角/钱财',value:99}],rules,''),error=>error.operationIndex===2&&error.message.includes('money 收支事件'));
   assert.throws(()=>C.settleUpdate(state,[first,{op:'money',direction:'expense',amount:11,evidence:'花了十一元'}],rules,'花了十一元'),error=>error.operationIndex===2&&error.message.includes('钱财超出'));
