@@ -18,7 +18,7 @@ const checks=[];
   const load=async id=>{await select('[data-preset-select]',id);await tap('[data-action=load-rule-preset]');await wait("__root.querySelector('.libei-rule-actions').parentElement.textContent.includes('有未保存修改')")};
   const applyPreset=async()=>{await click('保存规则');await wait("__root.querySelector('[data-schema-review]')?.textContent.includes('审核预设替换')");await tap('[data-action=confirm-schema]');await wait("!__root.querySelector('[data-schema-review]')")};
   const errorFrom=body=>E(`(async()=>{try{${body};return ''}catch(error){return error.message}})()`);
-  const importText=async text=>{await tap('[data-action=import-rule-preset]');await E(`(()=>{const el=__root.querySelector('[data-preset-file]'),data=new DataTransfer();data.items.add(new File([${JSON.stringify(text)}],'preset.json',{type:'application/json'}));el.files=data.files;el.dispatchEvent(new Event('change',{bubbles:true}))})()`)};
+  const importText=async text=>{await input('[data-preset-text]',text);await tap('[data-action=import-rule-preset]')};
   const wearFields=s=>s.rules.fieldSchema.fields.filter(field=>field.path[0]==='主角'&&field.path[1]==='穿着'&&field.enabled);
   const generationValues=async()=>E(`(()=>{const rules=__libeiV2App.api.snapshot().rules,fields=rules.fieldSchema.fields.filter(field=>field.enabled&&(field.updateMode==='ai'||['money','energy'].includes(field.system))),values={};
     for(const field of fields){const path=field.path,key=path.join('/');
@@ -63,10 +63,10 @@ const checks=[];
    const text=JSON.stringify(p.update.messages)+p.story.content;for(const retired of ['精液','元精','阳具','遮露','内衬'])assert.ok(!text.includes(retired),retired);
    for(const modern of ['上装','下装','内裤','鞋袜','人民币'])assert.ok(text.includes(modern));assert.equal(await memory(),bytes);assert.equal(await calls(),count);
   });
-  await check('Loading the Libei preset is an unsaved draft and does not inherit an initial selection',async()=>{
+  await check('Loading a field preset preserves current initial schemes and only changes an unsaved draft',async()=>{
    const bytes=await memory(),before=(await snap()).rules;await load('libei');
    assert.ok(await E("[...__root.querySelectorAll('[data-field-id]')].some(el=>el.textContent.includes('元精'))"));
-   assert.equal(await E("__root.querySelector('[aria-label=新聊天初值方案]')?.value ?? ''"),'');assert.deepEqual((await snap()).rules,before);assert.equal(await memory(),bytes);
+   assert.deepEqual(await E("[...__root.querySelectorAll('[data-initial-id]')].map(el=>el.dataset.initialId)"),before.initials.map(item=>item.id));assert.deepEqual((await snap()).rules,before);assert.equal(await memory(),bytes);
    await click('放弃修改');assert.equal(await E("__root.querySelector('[data-rule-presets]').textContent.includes('当前草稿：默认预设')"),true);
   });
   let customId;
@@ -79,25 +79,41 @@ const checks=[];
   const locationId=(await snap()).rules.fieldSchema.fields.find(field=>field.path.join('/')==='世界/地点').id;
   const ruleSelector=`[data-field-id="${locationId}"] [data-field-prop=rule]`;
   let exported;
-  await check('One-click export includes edited draft rules but no channel settings, secrets or chat text',async()=>{
+  await check('Page export shows copyable field text without downloading files or including other configuration',async()=>{
    const bytes=await memory();await input(ruleSelector,'地点按本轮实际移动更新。DRAFT_RULE_EXPORT_SENTINEL');
-   await E("window.__nativeObjectURL=URL.createObjectURL;URL.createObjectURL=blob=>{window.__presetExportBlob=blob;return __nativeObjectURL.call(URL,blob)};__previewContext.extensionSettings.libei_status_v2.__testSecret='PRIVATE_API_TOKEN_SENTINEL'");
-   await tap('[data-action=export-rule-preset]');exported=await E('(async()=>JSON.parse(await __presetExportBlob.text()))()');
-   assert.equal(exported.format,'libei-rule-preset-v1');assert.ok(JSON.stringify(exported).includes('DRAFT_RULE_EXPORT_SENTINEL'));
-   for(const forbidden of ['PRIVATE_API_TOKEN_SENTINEL','PRESET_BROWSER_CHAT_BODY_987','rememberedKey','channels','transport'])assert.ok(!JSON.stringify(exported).includes(forbidden));
-   assert.equal(await memory(),bytes);await E('URL.createObjectURL=__nativeObjectURL');await click('放弃修改');
+   await E("window.__nativeObjectURL=URL.createObjectURL;URL.createObjectURL=()=>{throw Error('Unexpected file download')};__previewContext.extensionSettings.libei_status_v2.__testSecret='PRIVATE_API_TOKEN_SENTINEL'");
+   await tap('[data-action=export-rule-preset]');await wait("__root.querySelector('[data-preset-text]').value.includes('DRAFT_RULE_EXPORT_SENTINEL')");exported=await E("__root.querySelector('[data-preset-text]').value");
+   assert.ok(exported.startsWith('# 男主状态字段预设 v1\n'));assert.ok(exported.includes('DRAFT_RULE_EXPORT_SENTINEL'));
+   for(const forbidden of ['PRIVATE_API_TOKEN_SENTINEL','PRESET_BROWSER_CHAT_BODY_987','rememberedKey','channels','transport','initials','numericConfig','worldbookReferences','systemPrompt'])assert.ok(!exported.includes(forbidden));
+   assert.equal(await E("!!__root.querySelector('[data-preset-file]')"),false);
+   assert.equal(await memory(),bytes);await E('URL.createObjectURL=__nativeObjectURL');
+   await screenshot('56-field-preset-text.png');await click('放弃修改');
+  });
+  await check('Copy button writes the displayed text and selects it when clipboard permission is unavailable',async()=>{
+   await E("Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.__copiedPreset=text}}})");
+   await tap('[data-action=copy-rule-preset]');assert.equal(await E('window.__copiedPreset'),exported);
+   await E("navigator.clipboard.writeText=async()=>{throw Error('denied')}");await tap('[data-action=copy-rule-preset]');
+   await wait("__root.querySelector('[data-rule-presets]').textContent.includes('文本已选中')");
+   assert.equal(await E("(()=>{const el=__root.querySelector('[data-preset-text]');return el.selectionStart===0&&el.selectionEnd===el.value.length})()"),true);
+  });
+  await check('Invalid pasted text leaves active rules, draft fields and timeline unchanged',async()=>{
+   const before=(await snap()).rules,bytes=await memory(),draft=await E(`__root.querySelector(${JSON.stringify(ruleSelector)}).value`);
+   await importText('不是规定格式');await wait("__root.querySelector('.libei-preset-error')?.textContent.includes('预设首行')");
+   assert.equal(await E("__root.querySelector('[data-preset-text]').value"),'不是规定格式');
+   assert.equal(await E(`__root.querySelector(${JSON.stringify(ruleSelector)}).value`),draft);assert.deepEqual((await snap()).rules,before);assert.equal(await memory(),bytes);
   });
   await check('Import round-trip loads only a draft and applies through an explicit replacement review',async()=>{
-   const oldNodes=(await doc()).nodes,before=(await snap()).rules,count=await calls();await importText(JSON.stringify(exported));
+   const oldNodes=(await doc()).nodes,before=(await snap()).rules,count=await calls();await importText(exported);
    await wait(`__root.querySelector(${JSON.stringify(ruleSelector)})?.value.includes('DRAFT_RULE_EXPORT_SENTINEL')`);
    assert.deepEqual((await snap()).rules,before);assert.deepEqual((await doc()).nodes,oldNodes);assert.equal(await calls(),count);
    await click('保存规则');await wait("!!__root.querySelector('[data-schema-review]')");assert.ok(await E("__root.querySelector('[data-schema-review]').textContent.includes('审核预设替换')"));
    await tap('[data-action=cancel-schema]');assert.deepEqual((await snap()).rules,before);
-   await applyPreset();assert.ok((await snap()).rules.fieldSchema.fields.find(field=>field.id===locationId).rule.includes('DRAFT_RULE_EXPORT_SENTINEL'));
+   await applyPreset();const after=(await snap()).rules;assert.ok(after.fieldSchema.fields.find(field=>field.id===locationId).rule.includes('DRAFT_RULE_EXPORT_SENTINEL'));
+   for(const key of ['initialChoice','protagonistName','numericConfig','systemPrompt','storyInstruction','worldbookReferences','updateRules','outputFormat','snapshotTemplate'])assert.deepEqual(after[key],before[key],key);
   });
   await check('Applying a preset blanks current display, pauses injection and keeps old snapshots byte-intact',async()=>{
    const oldNodes=(await doc()).nodes,s=await snap();assert.equal(s.awaitingPresetGeneration,true);assert.equal(s.state,null);
-   assert.equal(s.rules.presetName,exported.rules.presetName);
+   assert.equal(s.rules.presetName,(await E(`__libeiV2App.api.parseRulePreset(${JSON.stringify(exported)},'modern-ui.png')`)).name);
    assert.deepEqual((await doc()).nodes,oldNodes);assert.ok(!(await E('window.__storyPrompt||""')));
    await open('state');await wait("!!__root.querySelector('[data-awaiting-preset]')");
    const values=await E("[...__root.querySelectorAll('[data-field-value] dd')].map(el=>el.textContent.trim())");assert.ok(values.length>0&&values.every(value=>!value||value==='—'));

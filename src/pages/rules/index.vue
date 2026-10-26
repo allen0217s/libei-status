@@ -145,15 +145,17 @@ function revert() { actionEpoch++; saving.value = false; importing.value = false
 function loadPreset(value:{name:string;rules:any}) {
   if (!canEdit.value || saving.value || importing.value || view.value.busy) return;
   actionEpoch++; invalidatePreview(); localError.value = '';
-  loadDraft({...clone(value.rules),presetName:value.name,initialChoice:''});
+  draft.value.fieldSchema = clone(value.rules.fieldSchema);
+  draft.value.presetName = value.name;
   presetDraft.value = true; dirty.value = true;
-  notice.value = `已载入「${value.name}」草稿。保存时会审核整套替换；当前配置和聊天进度尚未改变。`;
+  notice.value = `已载入「${value.name}」的字段草稿，其他配置保留。保存时会审核应用；当前配置和聊天进度尚未改变。`;
 }
 async function savePreset(name:string) {
   if (!canEdit.value || saving.value || importing.value) return;
   const key=draftProfile.value, epoch=actionEpoch;importing.value=true;localError.value='';
   try {
-    await runEngine('saveRulePreset',name,assembledDraft(),key);
+    fieldEditor.value?.validate();
+    await runEngine('saveRulePreset',name,draft.value,key);
     if (!alive || epoch!==actionEpoch || key!==profileKey.value) return;
     await presetPanel.value?.refresh();
     if (!alive || epoch!==actionEpoch || key!==profileKey.value) return;
@@ -162,10 +164,9 @@ async function savePreset(name:string) {
   finally {if(alive&&epoch===actionEpoch)importing.value=false}
 }
 async function exportPreset(name:string) {
-  if (!canEdit.value || saving.value || importing.value) return;
-  localError.value='';
-  try {await runEngine('exportRulePreset',assembledDraft(),name,draftProfile.value)}
-  catch(error){if(alive)localError.value=error instanceof Error?error.message:String(error)}
+  if (!canEdit.value || saving.value || importing.value) throw Error('请等待已有操作结束后再导出。');
+  fieldEditor.value?.validate();
+  return await runEngine('exportRulePreset',draft.value,name,draftProfile.value) as string;
 }
 async function saveOptions() {
   if (!canEdit.value || optionsSaving.value) return;
@@ -203,7 +204,7 @@ onBeforeUnmount(() => { alive = false; actionEpoch++; previewEpoch++; invalidate
         <button class="bbs-btn" type="button" :disabled="saving" @click="revert">放弃修改</button>
 
       </div>
-      <RulePresets ref="presetPanel" :profile-key="draftProfile" :rules="draft" :disabled="!canEdit || saving || importing || view.busy" @load="loadPreset" @save-library="savePreset" @export="exportPreset" />
+      <RulePresets ref="presetPanel" :profile-key="draftProfile" :rules="draft" :disabled="!canEdit || saving || importing || view.busy" :export-text="exportPreset" @load="loadPreset" @save-library="savePreset" />
       <section v-if="schemaReview" class="libei-schema-review" data-schema-review aria-label="字段变更审核">
         <h3>{{ schemaReview.kind === 'preset' ? '审核预设替换' : '审核字段变更' }}</h3><p class="libei-hint">{{ schemaReview.summary }}</p>
         <p class="libei-hint">{{ schemaReview.kind === 'preset' ? '确认切换后当前状态全部留空，不把旧状态或黎北开场数值带入。点击手动生成后才建立当前状态；旧快照保留。' : '此次确认只保存字段配置与初值，不会改写旧楼层。新增默认值先在内存中使用，下次正常更新或手动写入当前字段时才保存；不兼容旧值会明确阻止更新。' }}</p>

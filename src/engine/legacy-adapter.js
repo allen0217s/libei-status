@@ -618,7 +618,6 @@ function createLibeiStatusCore(YAML) {
     }
     rules.worldbookReferences = validateReferenceConfig(rules.worldbookReferences ?? []);
     delete rules.numericRules;
-    rules.outputFormat = rules.outputFormat.replace(/整个主角对象/g, '整个主角对象');
     rules.presetName = presetName(rules.presetName ?? '黎北预设');
     rules.protagonistName ??= '';
     rules.systemPrompt ??= TASK_PROMPT;
@@ -687,14 +686,30 @@ function createLibeiStatusCore(YAML) {
     snapshotText(checked.snapshotTemplate,parseYaml(checked.initials[0].text,checked.fieldSchema),checked.fieldSchema);
     return checked;
   }
-  function parseRulePreset(text) {
-    if (typeof text !== 'string' || text.length > 2000000) fail('预设文件须为不超过 2000000 字符的 JSON。');
-    let value; try { value = JSON.parse(text.replace(/^\uFEFF/u,'')); } catch (_) { fail('预设文件不是合法 JSON。'); }
-    if (!object(value) || !['libei-rule-preset-v1','libei-independent-config-v1'].includes(value.format)) fail('不支持此预设格式。');
-    const name = presetName(value.format === 'libei-rule-preset-v1' ? value.name : value.rules?.presetName ?? '导入的变量规则');
-    return {name,rules:presetRules({...value.rules,presetName:name})};
+  // Preset storage and interchange own only field definitions; full profiles stay separate.
+  function fieldPreset(value) {
+    if (!object(value)) fail('预设缺少字段定义。');
+    return {presetName:presetName(value.presetName),fieldSchema:F.validateSchema(value.fieldSchema)};
   }
-  function rulePresetDocument(value,name) { const label = presetName(name); return {format:'libei-rule-preset-v1',name:label,rules:presetRules({...value,presetName:label})}; }
+  const FIELD_PRESET_HEADER = '# 男主状态字段预设 v1';
+  function parseRulePreset(text) {
+    if (typeof text !== 'string' || text.length > 250000) fail('预设文本不能超过 250000 字符。');
+    const normalized = text.replace(/^\uFEFF/u,'').replace(/\r\n/g,'\n').trimStart();
+    if (normalized.split('\n')[0] !== FIELD_PRESET_HEADER) fail('预设首行须为：' + FIELD_PRESET_HEADER);
+    let value;
+    try { value = parseYamlData(normalized); } catch (error) { fail('预设格式错误：' + error.message); }
+    if (Object.keys(value).length !== 2 || !own(value,'名称') || !own(value,'字段')) fail('预设只接受“名称”和“字段”，不接受初值或其他配置。');
+    const rules = fieldPreset({presetName:value.名称,fieldSchema:{version:1,fields:value.字段}});
+    return {name:rules.presetName,rules};
+  }
+  function rulePresetDocument(value,name) {
+    const rules = fieldPreset({...value,presetName:name}), doc = YAML.parseDocument('名称: ""\n字段: []\n');
+    doc.set('名称',rules.presetName); doc.set('字段',rules.fieldSchema.fields);
+    const text = FIELD_PRESET_HEADER + '\n' + doc.toString();
+    // Keep exports inside the same safety limits as imports, including YAML structure limits.
+    parseRulePreset(text);
+    return text;
+  }
   function presetFingerprint(rules) { return fingerprint(JSON.stringify(presetRules(rules))); }
   function presetGenerationFields(rules) {
     const schema = F.validateSchema(rules.fieldSchema);
@@ -780,7 +795,7 @@ function createLibeiStatusCore(YAML) {
     if (!/\/chat\/completions$/i.test(u.pathname)) u.pathname += '/chat/completions';
     return u.href;
   }
-  return { F, own, object, clone, inspect, parseYamlData, parseYaml, validateState, normalizeState, assignField, prepareProfileState, prepareUpdateBase, parsePatch, applyPatch, settleUpdate, elapsedMinutes, numericConfig, pointer, cleanMessage, validateRules, migrateRules, upgradeProfile, defaultRules, libeiRules, historicalFieldView, presetName, presetRules, parseRulePreset, rulePresetDocument, presetFingerprint, presetGenerationFields, presetGenerationEntries, parsePresetState, chooseInitial, snapshotText, updateEntries, messagesFromEntries, storyEntries, storyPrompt, buildMessages, apiUrl };
+  return { F, own, object, clone, inspect, parseYamlData, parseYaml, validateState, normalizeState, assignField, prepareProfileState, prepareUpdateBase, parsePatch, applyPatch, settleUpdate, elapsedMinutes, numericConfig, pointer, cleanMessage, validateRules, migrateRules, upgradeProfile, defaultRules, libeiRules, historicalFieldView, presetName, presetRules, fieldPreset, parseRulePreset, rulePresetDocument, presetFingerprint, presetGenerationFields, presetGenerationEntries, parsePresetState, chooseInitial, snapshotText, updateEntries, messagesFromEntries, storyEntries, storyPrompt, buildMessages, apiUrl };
 }
 
 /* Independent localStorage timeline. No MVU/assistant-variable dependency. */
@@ -1031,7 +1046,7 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
     const ids = new Set();
     return value.map(item => {
       if (!C.object(item) || typeof item.id !== 'string' || !/^user-[a-zA-Z0-9-]{1,100}$/u.test(item.id) || ids.has(item.id)) throw Error('自存规则预设 ID 无效或重复。');
-      ids.add(item.id); return {id:item.id,label:C.presetName(item.label),rules:C.presetRules(item.rules)};
+      ids.add(item.id); return {id:item.id,label:C.presetName(item.label),rules:C.fieldPreset({...item.rules,presetName:item.label})};
     });
   }
   let writerReady = false, leasePending = false, releaseLease = null;
@@ -1156,12 +1171,12 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
     return scope;
   }
   function listRulePresets() {
-    return C.clone([{id:'modern',label:'默认预设',builtin:true,rules:genericRules},{id:'libei',label:'黎北预设',builtin:true,rules:builtinLibeiRules},
+    return C.clone([{id:'modern',label:'默认预设',builtin:true,rules:C.fieldPreset(genericRules)},{id:'libei',label:'黎北预设',builtin:true,rules:C.fieldPreset(builtinLibeiRules)},
       ...(stored.rulePresets || []).map(item => ({...item,builtin:false}))]);
   }
   function saveRulePreset(label, value, expectedProfile = activeProfileKey()) {
     assertPresetScope(expectedProfile,true);
-    const name = C.presetName(label), preset = {id:'user-' + host.crypto.randomUUID(),label:name,rules:C.presetRules({...value,presetName:name})};
+    const name = C.presetName(label), preset = {id:'user-' + host.crypto.randomUUID(),label:name,rules:C.fieldPreset({...value,presetName:name})};
     if ((stored.rulePresets || []).length >= 50) throw Error('最多保存 50 个自定义预设，请先删除不需要的预设。');
     persist({...stored,rulePresets:[...(stored.rulePresets || []),preset]});
     status('规则预设已保存；当前角色规则与聊天状态未改变。');
@@ -1178,8 +1193,7 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
   }
   function exportRulePreset(value, label, expectedProfile = activeProfileKey()) {
     assertPresetScope(expectedProfile);
-    const result = C.rulePresetDocument(value,label);
-    download('男主状态-规则预设.json',result); return result;
+    return C.rulePresetDocument(value,label);
   }
   function parseRulePreset(text, expectedProfile = activeProfileKey()) {
     assertPresetScope(expectedProfile); return C.parseRulePreset(text);
@@ -1193,10 +1207,9 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
       if (serial(before) !== serial(after)) changes.push({kind:after ? 'field-edit' : 'field-retire',path:before.path,before,after:after || null});
     }
     for (const after of rules.fieldSchema.fields) if (!previous.fieldSchema.fields.some(field => field.id === after.id)) changes.push({kind:'field-add',path:after.path,before:null,after});
-    changes.push({kind:'preset-rules',path:[],before:{initials:previous.initials.map(item => item.label),initialChoice:previous.initialChoice},after:{initials:rules.initials.map(item => item.label),initialChoice:rules.initialChoice}});
     const planId = host.crypto.randomUUID();
     rulePresetPlan = {planId,rules,scope:fieldPlanScope(scope)};
-    return {planId,changes,summary:'将替换当前角色规则，并让当前聊天的显示全部留空、暂停状态注入。历史快照仍保留；请手动重新生成新预设的完整状态，不继承旧值。'};
+    return {planId,changes,summary:'将应用字段草稿；预设不携带初值、全局提示词、世界书引用或计算参数。当前状态留空并暂停注入，历史快照保留；请手动重新生成。'};
   }
   function commitRulePreset(planId) {
     const plan = rulePresetPlan;

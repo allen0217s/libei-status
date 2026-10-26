@@ -43,10 +43,10 @@ test('One-time clothing migration preserves subsequent custom labels and rules t
   assert.equal(draft.clothingLayoutVersion,1);shirt.label='今天的外套';shirt.rule='只记录正文明确穿上的外套，不从天气推断。';
   const before=clone(shirt),saved=C.presetRules(draft),reloaded=C.upgradeProfile(clone(saved));
   assert.deepEqual(clone(at(reloaded.fieldSchema,'主角/穿着/上装/衣物')),before);
-  const doc=C.rulePresetDocument(reloaded,'改过的衣着'),parsed=C.parseRulePreset(JSON.stringify(doc));
-  assert.equal(parsed.rules.clothingLayoutVersion,1);
+  const doc=C.rulePresetDocument(reloaded,'改过的衣着'),parsed=C.parseRulePreset(doc);
+  assert.deepEqual(Object.keys(parsed.rules).sort(),['fieldSchema','presetName']);
   assert.deepEqual(clone(at(parsed.rules.fieldSchema,'主角/穿着/上装/衣物')),before);
-  assert.equal(C.upgradeProfile(parsed.rules).fieldSchema.fields.find(field=>field.id===shirt.id).label,'今天的外套');
+  assert.equal(C.upgradeProfile({...reloaded,...parsed.rules}).fieldSchema.fields.find(field=>field.id===shirt.id).label,'今天的外套');
   assert.throws(()=>C.upgradeProfile({...draft,clothingLayoutVersion:2}),/衣着布局版本/u);
 });
 
@@ -170,15 +170,17 @@ test('Historical explicit schema is cloned while nonclothing field configuration
   assert.deepEqual(clone(at(view.schema,'主角/想法')),field);assert.equal(view.state.主角.想法,true);assert.equal(JSON.stringify(node),before);
 });
 
-test('Preset wrapper strips transport/secrets/history and parses old config exports without importing config',()=>{
+test('Plain-text presets round-trip only fields and reject legacy bundles or extra configuration',()=>{
   const dirty={...clone(modern),config:{apiKey:'SECRET'},rememberedKey:'SECRET',chat:{messages:['HISTORY']},arbitrary:'SECRET'};
   dirty.initials[0].apiKey='SECRET';
-  const doc=C.rulePresetDocument(dirty,'  现代日常  '),text=JSON.stringify(doc);
-  assert.equal(doc.format,'libei-rule-preset-v1');assert.equal(doc.name,'现代日常');assert.equal(doc.rules.presetName,'现代日常');assert.doesNotMatch(text,/SECRET|HISTORY|apiKey|rememberedKey/u);
-  const parsed=C.parseRulePreset(text);assert.equal(parsed.name,'现代日常');assert.equal(JSON.stringify(parsed.rules),JSON.stringify(doc.rules));
-  const old=C.parseRulePreset(JSON.stringify({format:'libei-independent-config-v1',rules:dirty,config:{url:'SECRET',model:'SECRET'},rememberedKey:'SECRET'}));
-  assert.doesNotMatch(JSON.stringify(old),/SECRET|HISTORY/u);
-  for(const invalid of ['{bad','[]',JSON.stringify({format:'wrong',rules:modern}),JSON.stringify({format:'libei-rule-preset-v1',name:'',rules:modern})])assert.throws(()=>C.parseRulePreset(invalid));
+  at(dirty.fieldSchema,'主角/想法').rule='含冒号: 和 # 及换行\n  缩进与中文\n\n';
+  const text=C.rulePresetDocument(dirty,'  现代日常  ');
+  assert.ok(text.startsWith('# 男主状态字段预设 v1\n'));assert.doesNotMatch(text,/SECRET|HISTORY|apiKey|rememberedKey|initials|systemPrompt|numericConfig|worldbookReferences/u);
+  const parsed=C.parseRulePreset(text);assert.equal(parsed.name,'现代日常');assert.deepEqual(clone(parsed.rules),clone(C.fieldPreset({...dirty,presetName:'现代日常'})));
+  assert.deepEqual(clone(C.parseRulePreset('\uFEFF'+text.replace(/\n/g,'\r\n'))),clone(parsed));
+  for(const invalid of ['{bad','[]',JSON.stringify({format:'libei-rule-preset-v1',name:'旧版',rules:modern}),text+'初值: {}\n',text+'名称: 重复\n',text.replace(/^名称:.*$/mu,'名称: &bad 现代日常'),text.replace(/^名称:.*$/mu,'名称: !tag 现代日常'),'x'.repeat(250001)])assert.throws(()=>C.parseRulePreset(invalid));
+  const duplicate=clone(modern);duplicate.fieldSchema.fields.push(clone(duplicate.fieldSchema.fields[0]));assert.throws(()=>C.rulePresetDocument(duplicate,'重复字段'));
+  const unsafe=clone(modern);unsafe.fieldSchema.fields[0].path=['世界','__proto__'];assert.throws(()=>C.rulePresetDocument(unsafe,'非法路径'));
 });
 
 // Exercise the exact runtime operation bodies with in-memory dependencies, without a DOM or host install.
@@ -219,9 +221,12 @@ const harness=()=>sandbox.makeHarness(C,T,modern,legacy,{version:1,rules:clone(l
 
 test('Preset listing is cloned, keeps original LiBei builtin, and user save/delete touch only preset storage',()=>{
   const api=harness(),before=api.snapshot(),list=api.listRulePresets();
-  assert.deepEqual(clone(list.map(item=>item.id)),['modern','libei']);assert.equal(list[1].rules.initials.length,2);assert.deepEqual(clone(list.map(item=>item.label)),['默认预设','黎北预设']);
-  list[0].rules.initials[0].label='mutated';assert.notEqual(api.listRulePresets()[0].rules.initials[0].label,'mutated');
+  assert.deepEqual(clone(list.map(item=>item.id)),['modern','libei']);assert.deepEqual(clone(list.map(item=>item.label)),['默认预设','黎北预设']);
+  assert.deepEqual(clone(list[1].rules.fieldSchema),clone(legacy.fieldSchema));
+  for(const item of list)assert.deepEqual(Object.keys(item.rules).sort(),['fieldSchema','presetName']);
+  list[0].rules.fieldSchema.fields[0].label='mutated';assert.notEqual(api.listRulePresets()[0].rules.fieldSchema.fields[0].label,'mutated');
   const saved=api.saveRulePreset('我的预设',modern,'role.png');assert.equal(saved.builtin,false);assert.equal(api.listRulePresets().length,3);
+  assert.deepEqual(Object.keys(saved.rules).sort(),['fieldSchema','presetName']);
   assert.equal(JSON.stringify(api.snapshot().stored.profiles),JSON.stringify(before.stored.profiles));
   assert.equal(api.snapshot().stored.timeline,'UNTOUCHED_CHAT');assert.equal(api.snapshot().stored.rememberedKey,'SECRET');
   assert.throws(()=>api.deleteRulePreset('modern','role.png'));api.deleteRulePreset(saved.id,'role.png');assert.equal(api.listRulePresets().length,2);
@@ -230,9 +235,10 @@ test('Preset listing is cloned, keeps original LiBei builtin, and user save/dele
 test('Preset export/parse are read-only and profile guarded',()=>{
   const api=harness(),before=api.snapshot();api.set('writable',false);
   const doc=api.exportRulePreset(modern,'日常','role.png');assert.equal(api.snapshot().writes,before.writes);
-  assert.equal(api.parseRulePreset(JSON.stringify(doc),'role.png').name,'日常');
+  assert.equal(api.parseRulePreset(doc,'role.png').name,'日常');
+  assert.equal(api.snapshot().downloads.length,0);
   assert.doesNotMatch(JSON.stringify(api.snapshot().downloads),/SECRET|UNTOUCHED_CHAT|UNTOUCHED_MODEL/u);
-  assert.throws(()=>api.parseRulePreset(JSON.stringify(doc),'other.png'));assert.throws(()=>api.exportRulePreset(modern,'日常','other.png'));
+  assert.throws(()=>api.parseRulePreset(doc,'other.png'));assert.throws(()=>api.exportRulePreset(modern,'日常','other.png'));
 });
 
 await asyncTest('Preset replacement needs its own preview/commit, stays blank until manual generation, and preserves history',async()=>{
