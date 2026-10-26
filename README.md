@@ -71,7 +71,7 @@ SillyTavern 前端扩展，按角色、聊天和回复分支保存状态。提�
 初值方案: []
 ```
 
-零套初值填写 `初值方案: []`；新增时可在页面按字段默认值创建方案。使用空格缩进；多行规则可用 `rule: |` 后换行缩进。日期和时间必须保留，ID 与路径不能重复；不接受锚点、别名、自定义标签或额外配置。文本最多 250000 字符。类型支持 `string/integer/number/boolean/enum/array/object`，更新方式为 `ai/manual/program`，`program` 仅限原有系统计算字段。
+零套初值填写 `初值方案: []`；新增时可在页面按字段默认值创建方案。使用空格缩进；多行规则可用 `rule: |` 后换行缩进。无需固定首行，日期和时间可省略；仍须填写完整字段定义，ID 与路径不能重复；不接受锚点、别名、自定义标签或额外配置。文本最多 250000 字符。类型支持 `string/integer/number/boolean/enum/array/object`，更新方式为 `ai/manual/program`，`program` 仅限原有系统计算字段。
 
 ## 更新体验
 
@@ -126,3 +126,5 @@ pnpm run test:updates
 界面与渠道交互参考柏柏 [ST-BaiBai-Book](https://github.com/baibai-git/ST-BaiBai-Book)，固定提交 `21f7488d8083f6293c3d4db654216f49fc35ea85`。该版本未找到 LICENSE/COPYING，非官方作品，提交不代表取得原作者授权。详见 [来源说明](REFERENCE_NOTICE.md) 和 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
 集中字段设计参考用户提供的 [shujuku](https://github.com/AlbusKen/shujuku) 需求方向；用户表示获其作者复制授权，本地字段工具与编辑界面未复制该仓库源码，也未引入其数据库。这不替代 ST-BaiBai-Book 的许可边界。
+
+导入须含“名称”和“字段”；“初值方案”可省略，默认为空列表。版本注释仅供阅读，无需固定首行。未配置日期时间时，普通状态更新照常工作；按小时增长的程序字段仍需要有效日期时间，或将每小时增长设为 0。

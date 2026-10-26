@@ -316,3 +316,14 @@ test('Preset plans reject stale profile/chat/transcript/config/selection/revisio
   const api=harness();api.set('writable',false);assert.throws(()=>api.previewRulePreset(modern,'role.png'));assert.throws(()=>api.saveRulePreset('name',modern,'role.png'));
 });
 console.log('Clothing/preset engine checks: '+checks.length+' passed; in-memory only, no real SillyTavern.');
+
+const custom = {id:'mood',path:['mood'],label:'Mood',group:'Custom',type:'string',default:'calm',enabled:true,visible:true,updateMode:'ai',rule:'Facts only'};
+const textWithoutHeader = JSON.stringify({'名称':'Custom','字段':[custom]});
+const imported = C.parseRulePreset(textWithoutHeader);
+assert.equal(imported.rules.fieldSchema.fields.length,1);
+assert.equal(imported.rules.initials.length,0);
+assert.equal(C.parseRulePreset('# any comment\n'+textWithoutHeader).rules.fieldSchema.fields[0].id,'mood');
+assert.throws(()=>C.parseRulePreset(JSON.stringify({'名称':'Custom','字段':[{label:'Mood',type:'string',default:'calm'}]})));
+const noClockRules=C.presetRules({...C.defaultRules(),...imported.rules,initialChoice:''});
+assert.equal(C.settleUpdate({mood:'calm'},[{op:'replace',path:'/mood',value:'happy'}],noClockRules,'').state.mood,'happy');
+console.log('PASS Full field format accepts no fixed header and no clock fields, preserves strict metadata and supports updates');

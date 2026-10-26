@@ -422,7 +422,10 @@ function createLibeiStatusCore(YAML) {
       seen.add(signature); events.push(clone(item)); eventIndices.push(index);
       } catch (error) { throw operationError(error,index,item,schema); }
     }
-    const next = applyPatch(base, patch, schema, sourceIndices), elapsed = elapsedMinutes(base.世界, next.世界), hours = Math.floor(elapsed / 60);
+    const next = applyPatch(base, patch, schema, sourceIndices);
+    const clockEnabled = schema ? ['date','time'].every(system => schema.fields.some(field => field.system === system && field.enabled)) : !!(base.世界?.日期 && base.世界?.时间 && next.世界?.日期 && next.世界?.时间);
+    if (!clockEnabled && enabled('energy') && config.hourlyGain !== 0) fail('按小时增长需要启用日期与时间；也可将每小时增长设为 0。其他变量不需要保留日期或时间。');
+    const elapsed = clockEnabled ? elapsedMinutes(base.世界,next.世界) : 0, hours = Math.floor(elapsed / 60);
     let money = base.主角?.钱财, loss = 0;
     for (const [index,event] of events.entries()) {
       try {
@@ -732,13 +735,12 @@ function createLibeiStatusCore(YAML) {
   const FIELD_PRESET_HEADER = '# 男主状态变量预设 v2', LEGACY_FIELD_PRESET_HEADER = '# 男主状态字段预设 v1';
   function parseRulePreset(text) {
     if (typeof text !== 'string' || text.length > 250000) fail('预设文本不能超过 250000 字符。');
-    const normalized = text.replace(/^\uFEFF/u,'').replace(/\r\n/g,'\n').trimStart(), header = normalized.split('\n')[0];
-    if (![FIELD_PRESET_HEADER,LEGACY_FIELD_PRESET_HEADER].includes(header)) fail('预设首行须为：' + FIELD_PRESET_HEADER);
+    const normalized = text.replace(/^\uFEFF/u,'').replace(/\r\n/g,'\n');
     let value;
     try { value = parseYamlData(normalized); } catch (error) { fail('预设格式错误：' + error.message); }
-    const keys = header === LEGACY_FIELD_PRESET_HEADER ? ['名称','字段'] : ['名称','字段','初值方案'];
-    if (Object.keys(value).length !== keys.length || keys.some(key => !own(value,key))) fail('预设只接受“名称”“字段”和 v2 的“初值方案”，不接受其他配置。');
-    const rules = fieldPreset({presetName:value.名称,fieldSchema:{version:1,fields:value.字段},initials:header === LEGACY_FIELD_PRESET_HEADER ? [] : value.初值方案});
+    const keys = ['名称','字段','初值方案'];
+    if (Object.keys(value).some(key => !keys.includes(key)) || !own(value,'名称') || !own(value,'字段')) fail('预设须包含“名称”“字段”，可选“初值方案”，不接受其他配置。');
+    const rules = fieldPreset({presetName:value.名称,fieldSchema:{version:1,fields:value.字段},initials:value.初值方案 ?? []});
     return {name:rules.presetName,rules};
   }
   function rulePresetDocument(value,name) {
