@@ -83,9 +83,9 @@ defineExpose({refresh});
    <button class="bbs-btn" type="button" data-action="export-rule-preset" :disabled="disabled||busy" @click="exportText">生成导出文本</button>
   </div>
   <slot name="initials" />
-  <label>预设文本<textarea ref="textArea" v-model="text" class="bbs-input libei-preset-text" data-preset-text :disabled="disabled||busy" spellcheck="false" placeholder="点击“生成导出文本”，或在这里粘贴YAML / JSON 变量，例如：心情: 平静。" /></label>
+  <label>预设文本<textarea ref="textArea" v-model="text" class="bbs-input libei-preset-text" data-preset-text :disabled="disabled||busy" spellcheck="false" placeholder="点击“生成导出文本”，或在这里粘贴同格式的变量预设。" /></label>
   <div class="libei-preset-actions"><button class="bbs-btn" type="button" data-action="copy-rule-preset" :disabled="disabled||busy||!text" @click="copyText">复制文本</button><button class="bbs-btn" type="button" data-action="import-rule-preset" :disabled="disabled||busy||!text.trim()" @click="importText">解析导入草稿</button></div>
-  <p>支持直接粘贴 YAML / JSON 变量对象、简写字段列表或已有预设，无需固定首行，也不要求保留日期、时间。名称、ID、路径等可省略，程序按变量内容补齐。解析失败保留文本与草稿。</p>
+  <p>首行固定为 # 男主状态变量预设 v2，下面按 YAML 格式填写“名称”“字段”和“初值方案”。可先导出作模板；粘贴后点击解析，格式有误时保留文本与原草稿。</p>
   <p v-if="notice" role="status">{{ notice }}</p>
   <div class="libei-preset-save"><label>另存名称<input v-model="name" class="bbs-input" data-preset-name maxlength="80" :disabled="disabled||busy" placeholder="例如：都市日常" /></label><button class="bbs-btn" type="button" data-action="save-rule-preset" :disabled="disabled||busy||!name.trim()" @click="emit('save-library',name)">另存为预设</button></div>
   <p>另存、导出包含字段与初值方案，不包含当前选择、全局提示词、世界书引用、计算参数、聊天进度或 API 配置。另存只保存副本，不应用到聊天。</p>

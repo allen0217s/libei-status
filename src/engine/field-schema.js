@@ -145,12 +145,14 @@ export function createFieldSchemaToolkit() {
       const reserved = systems.find(system => pathEqual(system.path, field.path));
       if (reserved) {
         if (field.system !== reserved.system || field.type !== reserved.type || field.updateMode !== reserved.updateMode) fail('系统字段的路径、类型和写入方不能修改。');
+        if (['date', 'time'].includes(reserved.system) && !field.enabled) fail('日期和时间字段必须启用。');
         if (['money', 'energy'].includes(reserved.system) && own(field, 'min') && field.min < 0) fail('系统数值字段的最小值不能为负数。');
       } else {
         if (own(field, 'system') || field.updateMode === 'program' || systems.some(system => prefix(field.path, system.path) || prefix(system.path, field.path))) fail('不能伪造系统字段或声明任意程序计算。');
       }
       if (!valueValid(field.default, field)) fail('字段默认值与类型、范围或系统约束不符：' + field.label);
     }
+    for (const system of systems.slice(0, 2)) if (!source.fields.some(field => field.system === system.system)) fail('必须保留日期和时间字段。');
     return source;
   }
   function stableId(path) {

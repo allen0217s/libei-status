@@ -84,7 +84,7 @@ test('scalar null is left undeclared and preserved as unknown rather than coerce
   assert.equal(toolkit.prepareState(source, schema).state.扩展.未知, null);
   assert.equal(toolkit.project(source, schema).主角.暂无, undefined);
 });
-test('system fields keep typed writer contracts while clocks are optional', () => {
+test('system fields carry exact paths types modes and clock enablement', () => {
   const schema = toolkit.infer(fixture());
   for (const [name, path, type, mode] of [
     ['date',['世界','日期'],'string','ai'], ['time',['世界','时间'],'string','ai'],
@@ -94,12 +94,12 @@ test('system fields keep typed writer contracts while clocks are optional', () =
     const field = find(schema, path);
     assert.equal(field.system, name); assert.equal(field.type, type); assert.equal(field.updateMode, mode);
   }
-  assert.equal(toolkit.validateSchema(changed(['世界','时间'], {enabled:false})).fields.find(field=>field.system==='time').enabled,false);
+  assert.throws(() => toolkit.validateSchema(changed(['世界','时间'], {enabled:false})), /必须启用/u);
   assert.throws(() => toolkit.validateSchema(changed(['世界','日期'], {updateMode:'manual'})), /系统字段/u);
   assert.throws(() => toolkit.validateSchema(changed(['主角','钱财'], {type:'number'})), /系统字段/u);
   assert.throws(() => toolkit.validateSchema(changed(['主角','精液'], {updateMode:'ai'})), /系统字段/u);
   const noClock = copy(schema); noClock.fields = noClock.fields.filter(field => field.system !== 'time');
-  assert.ok(toolkit.validateSchema(noClock));
+  assert.throws(() => toolkit.validateSchema(noClock), /日期和时间/u);
 });
 test('disabled program fields may be hidden but still need valid default types', () => {
   const schema = changed(['主角','钱财'], {enabled:false, visible:false});

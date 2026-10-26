@@ -178,7 +178,7 @@ test('Plain-text presets round-trip fields and initial schemes while excluding o
   assert.ok(text.startsWith('# 男主状态变量预设 v2\n'));assert.doesNotMatch(text,/SECRET|HISTORY|apiKey|rememberedKey|initials|systemPrompt|numericConfig|worldbookReferences/u);
   const parsed=C.parseRulePreset(text);assert.equal(parsed.name,'现代日常');assert.deepEqual(clone(parsed.rules),clone(C.fieldPreset({...dirty,presetName:'现代日常'})));
   assert.deepEqual(clone(C.parseRulePreset('\uFEFF'+text.replace(/\n/g,'\r\n'))),clone(parsed));
-  for(const invalid of ['{bad','[]',text+'名称: 重复\n',text.replace(/^名称:.*$/mu,'名称: &bad 现代日常'),text.replace(/^名称:.*$/mu,'名称: !tag 现代日常'),'x'.repeat(250001)])assert.throws(()=>C.parseRulePreset(invalid));
+  for(const invalid of ['{bad','[]',JSON.stringify({format:'libei-rule-preset-v1',name:'旧版',rules:modern}),text+'初值: {}\n',text+'名称: 重复\n',text.replace(/^名称:.*$/mu,'名称: &bad 现代日常'),text.replace(/^名称:.*$/mu,'名称: !tag 现代日常'),'x'.repeat(250001)])assert.throws(()=>C.parseRulePreset(invalid));
   const duplicate=clone(modern);duplicate.fieldSchema.fields.push(clone(duplicate.fieldSchema.fields[0]));assert.throws(()=>C.rulePresetDocument(duplicate,'重复字段'));
   const unsafe=clone(modern);unsafe.fieldSchema.fields[0].path=['世界','__proto__'];assert.throws(()=>C.rulePresetDocument(unsafe,'非法路径'));
 });

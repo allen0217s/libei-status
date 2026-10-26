@@ -98,7 +98,7 @@ const checks=[];
   });
   await check('Invalid pasted text leaves active rules, draft fields and timeline unchanged',async()=>{
    const before=(await snap()).rules,bytes=await memory(),draft=await E(`__root.querySelector(${JSON.stringify(ruleSelector)}).value`);
-   await importText('不是规定格式');await wait("__root.querySelector('.libei-preset-error')?.textContent.includes('格式')");
+   await importText('不是规定格式');await wait("__root.querySelector('.libei-preset-error')?.textContent.includes('预设首行')");
    assert.equal(await E("__root.querySelector('[data-preset-text]').value"),'不是规定格式');
    assert.equal(await E(`__root.querySelector(${JSON.stringify(ruleSelector)}).value`),draft);assert.deepEqual((await snap()).rules,before);assert.equal(await memory(),bytes);
   });
