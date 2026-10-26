@@ -125,7 +125,7 @@ const checks=[];
   await check('Manual generation builds a fresh state from the new preset without old values or LiBei opening data',async()=>{
    const oldNodes=(await doc()).nodes,values=await generationValues();
    const moneyField=(await snap()).rules.fieldSchema.fields.find(field=>field.system==='money');
-   await mockGeneration({values,evidence:{[moneyField.id]:moneyEvidence}});await click('手动生成当前状态');
+   await mockGeneration({values,evidence:{[moneyField.id]:moneyEvidence,[locationId]:'PRESET_BROWSER_CHAT_BODY_987'}});await click('手动生成当前状态');
    await wait("__libeiV2App.api.snapshot().state && !__libeiV2App.api.snapshot().awaitingPresetGeneration");
    const s=await snap();assert.equal(s.state.主角.钱财,42);assert.notEqual(s.state.主角.钱财,1280);assert.equal(s.state.主角.穿着.上装.衣物,'NEW_上装_衣物');assert.equal(s.state.主角.穿着.鞋袜.衣物,'NEW_鞋袜_衣物');
    assert.equal(s.state.主角.想法,'刚下班，想着晚饭吃什么。');assert.deepEqual(s.state.主角.随身物品,{手机:'电量 60%'});

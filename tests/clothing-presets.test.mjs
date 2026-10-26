@@ -183,6 +183,21 @@ test('Plain-text presets round-trip only fields and reject legacy bundles or ext
   const unsafe=clone(modern);unsafe.fieldSchema.fields[0].path=['世界','__proto__'];assert.throws(()=>C.rulePresetDocument(unsafe,'非法路径'));
 });
 
+test('Initialization accepts ordinary field evidence without weakening program numeric evidence',()=>{
+  const rules=C.defaultRules(),fields=C.presetGenerationFields(rules),values=Object.fromEntries(fields.map(field=>[field.id,clone(field.default)]));
+  const location=at(rules.fieldSchema,'世界/地点'),money=fields.find(field=>field.system==='money');
+  values[location.id]='门口';const context=[{content:'站在门口，钱包里有四十二元。'}];
+  const parse=evidence=>C.parsePresetState(JSON.stringify({values,evidence}),rules,context);
+  assert.equal(parse({[location.id]:'站在门口'}).世界.地点,'门口');
+  values[money.id]=42;
+  assert.throws(()=>parse({[location.id]:'站在门口'}),/程序数值初始化缺少/u);
+  assert.throws(()=>parse({[money.id]:'不在正文中的引文'}),/程序数值初始化缺少/u);
+  assert.equal(parse({[location.id]:'站在门口',[money.id]:'钱包里有四十二元'}).主角.钱财,42);
+  for(const id of ['字段ID','钱财','/主角/钱财'])assert.throws(()=>parse({[id]:'钱包里有四十二元'}),error=>error.message.includes(id)&&error.message.includes('未允许的字段 ID'));
+  assert.throws(()=>parse({[location.id]:{text:'站在门口'}}),/初始化引文须为/u);
+  assert.throws(()=>parse({[location.id]:'x'.repeat(501)}),/初始化引文须为/u);
+});
+
 // Exercise the exact runtime operation bodies with in-memory dependencies, without a DOM or host install.
 const presetBody=source.slice(source.indexOf('  /* Rule presets: explicit'),source.indexOf('  /* End rule preset operations. */'));
 const planBody=source.slice(source.indexOf('  function fieldPlanScope('),source.indexOf('  function previewRulesChange('));
