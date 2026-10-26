@@ -175,7 +175,7 @@ function createLibeiStatusCore(YAML) {
       inspect(child, depth + 1, count);
     }
   }
-  function parseYamlData(text) {
+  function parseYamlData(text, allowSequence = false) {
     if (typeof text !== 'string' || text.length > 250000) fail('初值应是 250000 字以内的 YAML / JSON。');
     const document = YAML.parseDocument(text, { uniqueKeys: true, strict: true, version: '1.2' });
     if (document.errors.length || document.warnings.length) fail('YAML 格式有误、字段重复或含不支持的标签。');
@@ -193,7 +193,7 @@ function createLibeiStatusCore(YAML) {
     visit(document.contents);
     const value = document.toJS({ maxAliasCount: 0, mapAsMap: false });
     inspect(value);
-    if (!object(value)) fail('初值最外层必须是对象。');
+    if (!object(value) && !(allowSequence && Array.isArray(value))) fail('文本最外层应为变量对象或字段列表。');
     return value;
   }
   function parseYaml(text, schema, options) {
@@ -422,7 +422,10 @@ function createLibeiStatusCore(YAML) {
       seen.add(signature); events.push(clone(item)); eventIndices.push(index);
       } catch (error) { throw operationError(error,index,item,schema); }
     }
-    const next = applyPatch(base, patch, schema, sourceIndices), elapsed = elapsedMinutes(base.世界, next.世界), hours = Math.floor(elapsed / 60);
+    const next = applyPatch(base, patch, schema, sourceIndices);
+    const clockEnabled = schema ? ['date','time'].every(system => schema.fields.some(field => field.system === system && field.enabled)) : !!(base.世界?.日期 && base.世界?.时间 && next.世界?.日期 && next.世界?.时间);
+    if (!clockEnabled && enabled('energy') && config.hourlyGain !== 0) fail('按小时增长需要启用日期与时间；也可将每小时增长设为 0。其他变量不需要保留日期或时间。');
+    const elapsed = clockEnabled ? elapsedMinutes(base.世界,next.世界) : 0, hours = Math.floor(elapsed / 60);
     let money = base.主角?.钱财, loss = 0;
     for (const [index,event] of events.entries()) {
       try {
@@ -729,17 +732,83 @@ function createLibeiStatusCore(YAML) {
     });
     return {presetName:presetName(value.presetName),fieldSchema,initials};
   }
-  const FIELD_PRESET_HEADER = '# 男主状态变量预设 v2', LEGACY_FIELD_PRESET_HEADER = '# 男主状态字段预设 v1';
+  const FIELD_PRESET_HEADER = '# 男主状态变量预设 v2';
+  const importPick = (value, keys, fallback) => { const key = keys.find(key => own(value,key)); return key === undefined ? fallback : value[key]; };
+  function importField(source, name) {
+    if (!object(source)) fail('字段定义须为对象。');
+    const supported = new Set(['id','ID','label','名称','name','显示名','path','路径','group','分组','type','类型','default','默认值','value','值','enabled','启用','visible','显示','updateMode','更新方式','rule','更新规则','规则','options','选项','min','最小值','max','最大值','system']);
+    const unknown = Object.keys(source).filter(key => !supported.has(key));
+    if (unknown.length) fail('字段定义含未识别属性：' + unknown.join('、') + '。请检查属性名，或直接使用“变量名: 值”的写法。');
+    const label = importPick(source,['label','名称','name','显示名'],name);
+    let path = importPick(source,['path','路径'],undefined);
+    if (typeof path === 'string') path = path.startsWith('/') ? pointer(path) : path.split(/[./]/u);
+    path ??= [label ?? source.id];
+    if (!Array.isArray(path) || !path.length) fail('字段需要名称或路径。');
+    if (path[0] === '黎北') path = ['主角',...path.slice(1)];
+    const aliases = {文字:'string',文本:'string',字符串:'string',整数:'integer',数值:'number',数字:'number',开关:'boolean',布尔:'boolean',枚举:'enum',列表:'array',数组:'array',对象:'object'};
+    let type = importPick(source,['type','类型'],undefined); type = aliases[type] || type;
+    const options = importPick(source,['options','选项'],undefined);
+    const hasDefault = ['default','默认值','value','值'].some(key => own(source,key));
+    let value = importPick(source,['default','默认值','value','值'],undefined);
+    if (!hasDefault) value = ({string:'未记录',integer:0,number:0,boolean:false,array:[],object:{},enum:options?.[0]})[type || 'string'];
+    if (value === null || value === undefined) fail('字段“' + (label || path.join('.')) + '”无法推断默认值，请提供类型及符合类型的默认值。');
+    const inferredType = Array.isArray(value) ? 'array' : object(value) ? 'object' : typeof value === 'number' ? Number.isSafeInteger(value) ? 'integer' : 'number' : typeof value;
+    type ||= inferredType;
+    const sample = {}; let seed = type === 'object' ? {} : type === 'array' ? [] : value;
+    if (path.join('/') === '世界/日期') seed = '第1天';
+    if (path.join('/') === '世界/时间') seed = '00:00';
+    if (['主角/钱财','主角/精液'].includes(path.join('/'))) seed = 0;
+    assignField(sample,path,seed);
+    const base = F.infer(sample).fields.find(field => JSON.stringify(field.path) === JSON.stringify(path));
+    if (!base) fail('无法识别字段路径：' + path.join('.'));
+    const modes = {'AI':'ai',自动:'ai','AI更新':'ai','AI 按事实更新':'ai',手动:'manual',手动维护:'manual',程序:'program',程序结算:'program'};
+    const mode = importPick(source,['updateMode','更新方式'],base.updateMode);
+    const field = {...base,id:importPick(source,['id','ID'],base.id),label:label ?? path.at(-1),group:importPick(source,['group','分组'],path.length > 1 ? path[0] : '自定义'),type,default:clone(value),enabled:importPick(source,['enabled','启用'],true),visible:importPick(source,['visible','显示'],true),updateMode:modes[mode] || mode,rule:importPick(source,['rule','更新规则','规则'],'')};
+    if (own(source,'system')) field.system = source.system;
+    for (const [key,alias] of [['options','选项'],['min','最小值'],['max','最大值']]) {
+      const next = importPick(source,[key,alias],undefined); if (next !== undefined) field[key] = clone(next);
+    }
+    return field;
+  }
+  function importInitials(value) {
+    if (value === undefined) return [];
+    const entries = Array.isArray(value) ? value.map(item => [undefined,item]) : object(value) ? Object.entries(value) : null;
+    if (!entries) fail('初值方案须为列表或名称到变量值的对象。');
+    return entries.map(([name,item],index) => {
+      const source = object(item) ? item : {};
+      const label = importPick(source,['label','名称','name'],name || '初值 ' + (index + 1));
+      const data = importPick(source,['text','变量','state','值'],item);
+      return {id:importPick(source,['id','ID'],'initial-' + (index + 1)),label,text:typeof data === 'string' ? data : JSON.stringify(data)};
+    });
+  }
   function parseRulePreset(text) {
-    if (typeof text !== 'string' || text.length > 250000) fail('预设文本不能超过 250000 字符。');
-    const normalized = text.replace(/^\uFEFF/u,'').replace(/\r\n/g,'\n').trimStart(), header = normalized.split('\n')[0];
-    if (![FIELD_PRESET_HEADER,LEGACY_FIELD_PRESET_HEADER].includes(header)) fail('预设首行须为：' + FIELD_PRESET_HEADER);
+    if (typeof text !== 'string' || text.length > 250000) fail('变量文本不能超过 250000 字符。');
+    const normalized = text.replace(/^\uFEFF/u,'').replace(/\r\n/g,'\n').replace(/^\s*```(?:yaml|yml|json)?[ \t]*\n([\s\S]*?)\n```\s*$/iu,'$1');
     let value;
-    try { value = parseYamlData(normalized); } catch (error) { fail('预设格式错误：' + error.message); }
-    const keys = header === LEGACY_FIELD_PRESET_HEADER ? ['名称','字段'] : ['名称','字段','初值方案'];
-    if (Object.keys(value).length !== keys.length || keys.some(key => !own(value,key))) fail('预设只接受“名称”“字段”和 v2 的“初值方案”，不接受其他配置。');
-    const rules = fieldPreset({presetName:value.名称,fieldSchema:{version:1,fields:value.字段},initials:header === LEGACY_FIELD_PRESET_HEADER ? [] : value.初值方案});
-    return {name:rules.presetName,rules};
+    try { value = parseYamlData(normalized,true); } catch (error) { fail('变量文本格式错误：' + error.message); }
+    const source = object(value.rules) && (value.rules.fieldSchema || value.rules.fields || value.rules.字段) ? value.rules : value;
+    const definitions = source.fieldSchema?.fields ?? importPick(source,['字段','fields'],undefined);
+    const explicitVariables = importPick(source,['变量','variables'],undefined);
+    const wrapped = definitions !== undefined || explicitVariables !== undefined || source !== value;
+    const name = presetName(wrapped ? importPick(value,['名称','name','presetName'],importPick(source,['名称','name','presetName'],'导入的变量')) : '导入的变量');
+    let fieldSchema;
+    if (Array.isArray(value) || definitions !== undefined) {
+      const data = Array.isArray(value) ? value : definitions;
+      const fields = Array.isArray(data) ? data.map(item => importField(item)) : object(data) ? Object.entries(data).map(([key,item]) => importField(object(item) && ['type','类型','default','默认值','path','路径','rule','规则','更新规则'].some(prop => own(item,prop)) ? item : {default:item},key)) : null;
+      if (!fields) fail('字段须为列表或名称到字段定义的对象。');
+      fieldSchema = F.validateSchema({version:1,fields});
+    } else {
+      const variables = explicitVariables ?? value;
+      if (!object(variables)) fail('变量须为名称到值的对象。');
+      function checkNulls(node,path = []) {
+        if (node === null) fail('变量“' + path.join('.') + '”为 null，无法推断类型；请提供实际值或明确的字段定义。');
+        if (object(node) && path.at(-1) !== '随身物品') for (const [key,child] of Object.entries(node)) checkNulls(child,[...path,key]);
+      }
+      checkNulls(variables); fieldSchema = F.infer(variables);
+    }
+    if (!fieldSchema.fields.length) fail('没有识别到变量，请提供至少一个变量或字段定义。');
+    const rules = fieldPreset({presetName:name,fieldSchema,initials:importInitials(wrapped ? importPick(source,['初值方案','initials'],undefined) : undefined)});
+    return {name,rules};
   }
   function rulePresetDocument(value,name) {
     const rules = fieldPreset({...value,presetName:name}), doc = YAML.parseDocument('名称: ""\n字段: []\n初值方案: []\n');

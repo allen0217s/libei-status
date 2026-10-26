@@ -52,8 +52,8 @@ const checks = [];
         assert.equal(await E(`__root.querySelector(${JSON.stringify(control(id,'updateMode'))}).disabled`),true);
         assert.equal(await E(`!!__root.querySelector(${JSON.stringify(row(id)+' input[data-field-prop=path]')})`),false);
       }
-      assert.equal(await E(`__root.querySelector(${JSON.stringify(action(dateId,'disable'))}).disabled`),true);
-      assert.equal(await E(`__root.querySelector(${JSON.stringify(action(timeId,'disable'))}).disabled`),true);
+      assert.equal(await E(`__root.querySelector(${JSON.stringify(action(dateId,'disable'))}).disabled`),false);
+      assert.equal(await E(`__root.querySelector(${JSON.stringify(action(timeId,'disable'))}).disabled`),false);
     });
     await check('Original new-initial draft behavior remains available',async()=>{
       const before=await memory();

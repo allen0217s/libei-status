@@ -13,7 +13,6 @@ const systemNames:Record<string,string> = {date:'日期',time:'时间',money:'�
 const copy = (value:any):any => JSON.parse(JSON.stringify(value));
 const format = (value:any):string => JSON.stringify(value, null, 2) ?? 'null';
 const knownSystem = (field:any) => Object.hasOwn(systemNames, field.system || '');
-const timeSystem = (field:any) => field.system === 'date' || field.system === 'time';
 let emittedSchema:any = null, sequence = 0;
 watch(() => props.modelValue, value => {
   if (toRaw(value) === emittedSchema) return;
@@ -91,7 +90,7 @@ function move(index:number, offset:number) {
   if (props.disabled || target < 0 || target >= fields.value.length) return;
   const next = copy(fields.value); [next[index],next[target]] = [next[target],next[index]]; change(next);
 }
-function toggle(field:any) { if (!timeSystem(field)) patch(field.id, {enabled:!field.enabled}); }
+function toggle(field:any) { patch(field.id, {enabled:!field.enabled}); }
 function fieldError(field:any):string {
   if (pendingTypes.value[field.id]) return '请先确认或取消类型变更。';
   let initial:any;
@@ -138,7 +137,7 @@ defineExpose({validate});
         <summary><strong>{{ field.label || '未命名变量' }}</strong><span>{{ field.group || '未分组' }} · {{ field.type }} · {{ field.enabled ? (field.visible ? '启用' : '隐藏') : '已停用' }}</span></summary>
         <div class="libei-schema-body">
           <p class="libei-schema-path">ID：{{ field.id }}<br />路径：{{ Array.isArray(field.path) ? field.path.join(' / ') : '无效路径' }}</p>
-          <p v-if="knownSystem(field)" class="libei-schema-hint">内置{{ systemNames[field.system] }}字段：路径、类型和更新方式锁定。{{ timeSystem(field) ? '日期与时间必须启用。' : '可停用或隐藏，原有数据保留。' }}</p>
+          <p v-if="knownSystem(field)" class="libei-schema-hint">内置{{ systemNames[field.system] }}字段：路径、类型和更新方式锁定。可停用或隐藏，原有数据保留。</p>
           <div class="libei-schema-grid">
             <label>显示名称<input class="bbs-input" data-field-prop="label" :value="field.label" :aria-label="field.label + '显示名称'" @input="text(field,'label',$event)" /></label>
             <label>分组<input class="bbs-input" data-field-prop="group" :value="field.group" :aria-label="field.label + '分组'" @input="text(field,'group',$event)" /></label>
@@ -153,7 +152,7 @@ defineExpose({validate});
           <label class="libei-schema-label">更新规则<textarea class="bbs-input libei-schema-json" data-field-prop="rule" :value="field.rule" :aria-label="field.label + '更新规则'" rows="3" @input="text(field,'rule',$event)" /></label>
           <label class="libei-schema-toggle"><input type="checkbox" class="bbs-checkbox" data-field-prop="visible" :checked="field.visible" @change="patch(field.id,{visible:checkOf($event)})" />在状态界面显示</label>
           <p v-if="fieldError(field) && (showErrors || jsonDrafts[field.id] !== undefined || pendingTypes[field.id] || minDrafts[field.id] !== undefined || maxDrafts[field.id] !== undefined)" class="libei-schema-error" role="alert">{{ fieldError(field) }}</p>
-          <div class="libei-schema-actions"><button class="bbs-btn" type="button" data-action="clone" :disabled="fields.length >= 128" :aria-label="'复制' + field.label" @click="add(field)">复制变量</button><button class="bbs-btn" type="button" data-action="move-up" :disabled="index === 0" :aria-label="'上移' + field.label" @click="move(index,-1)">上移</button><button class="bbs-btn" type="button" data-action="move-down" :disabled="index === fields.length - 1" :aria-label="'下移' + field.label" @click="move(index,1)">下移</button><button class="bbs-btn" type="button" data-action="disable" :disabled="timeSystem(field)" :aria-label="(field.enabled ? '停用' : '启用') + field.label" @click="toggle(field)">{{ field.enabled ? '停用变量（保留数据）' : '重新启用' }}</button></div>
+          <div class="libei-schema-actions"><button class="bbs-btn" type="button" data-action="clone" :disabled="fields.length >= 128" :aria-label="'复制' + field.label" @click="add(field)">复制变量</button><button class="bbs-btn" type="button" data-action="move-up" :disabled="index === 0" :aria-label="'上移' + field.label" @click="move(index,-1)">上移</button><button class="bbs-btn" type="button" data-action="move-down" :disabled="index === fields.length - 1" :aria-label="'下移' + field.label" @click="move(index,1)">下移</button><button class="bbs-btn" type="button" data-action="disable"  :aria-label="(field.enabled ? '停用' : '启用') + field.label" @click="toggle(field)">{{ field.enabled ? '停用变量（保留数据）' : '重新启用' }}</button></div>
         </div>
       </details>
     </fieldset>
