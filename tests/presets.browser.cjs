@@ -16,7 +16,7 @@ const checks=[];
   const check=async(name,fn)=>{await fn();checks.push(name);console.log('PASS '+name)};
   const open=async page=>{await E(`__libeiV2App.open(${JSON.stringify(page)})`);await wait(page==='state' ? "!!__root.querySelector('.libei-state-page')" : `!!__root.querySelector('[data-editor-page=${page}]')`)};
   const load=async id=>{await select('[data-preset-select]',id);await tap('[data-action=load-rule-preset]');await wait("__root.querySelector('.libei-rule-actions').parentElement.textContent.includes('有未保存修改')")};
-  const applyPreset=async()=>{await click('保存规则');await wait("__root.querySelector('[data-schema-review]')?.textContent.includes('审核预设替换')");await tap('[data-action=confirm-schema]');await wait("!__root.querySelector('[data-schema-review]')")};
+  const applyPreset=async()=>{await click('保存规则');await wait("!__root.querySelector('.libei-rule-actions .bbs-btn-primary').disabled");assert.equal(await E("!!__root.querySelector('[data-schema-review]')"),false)};
   const errorFrom=body=>E(`(async()=>{try{${body};return ''}catch(error){return error.message}})()`);
   const importText=async text=>{await input('[data-preset-text]',text);await tap('[data-action=import-rule-preset]')};
   const wearFields=s=>s.rules.fieldSchema.fields.filter(field=>field.path[0]==='主角'&&field.path[1]==='穿着'&&field.enabled);
@@ -102,12 +102,12 @@ const checks=[];
    assert.equal(await E("__root.querySelector('[data-preset-text]').value"),'不是规定格式');
    assert.equal(await E(`__root.querySelector(${JSON.stringify(ruleSelector)}).value`),draft);assert.deepEqual((await snap()).rules,before);assert.equal(await memory(),bytes);
   });
-  await check('Import round-trip loads only a draft and applies through an explicit replacement review',async()=>{
+  await check('Import round-trip loads only a draft and applies with one save click after validation',async()=>{
    const oldNodes=(await doc()).nodes,before=(await snap()).rules,count=await calls();await importText(exported);
    await wait(`__root.querySelector(${JSON.stringify(ruleSelector)})?.value.includes('DRAFT_RULE_EXPORT_SENTINEL')`);
    assert.deepEqual((await snap()).rules,before);assert.deepEqual((await doc()).nodes,oldNodes);assert.equal(await calls(),count);
-   await click('保存规则');await wait("!!__root.querySelector('[data-schema-review]')");assert.ok(await E("__root.querySelector('[data-schema-review]').textContent.includes('审核预设替换')"));
-   await tap('[data-action=cancel-schema]');assert.deepEqual((await snap()).rules,before);
+   await click('放弃修改');assert.deepEqual((await snap()).rules,before);await importText(exported);
+   await wait(`__root.querySelector(${JSON.stringify(ruleSelector)})?.value.includes('DRAFT_RULE_EXPORT_SENTINEL')`);
    await applyPreset();const after=(await snap()).rules;assert.ok(after.fieldSchema.fields.find(field=>field.id===locationId).rule.includes('DRAFT_RULE_EXPORT_SENTINEL'));
    for(const key of ['protagonistName','numericConfig','systemPrompt','storyInstruction','worldbookReferences','updateRules','outputFormat','snapshotTemplate'])assert.deepEqual(after[key],before[key],key);assert.equal(after.initialChoice,'');assert.deepEqual(after.initials,before.initials);
   });

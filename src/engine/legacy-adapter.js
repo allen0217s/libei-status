@@ -442,6 +442,13 @@ function createLibeiStatusCore(YAML) {
     return { state:validateState(next, schema), patch, settlement:{ version:1, elapsedMinutes:elapsed, hourlyGain:config.hourlyGain, gain, loss:round(loss), events } };
   }
   function serialEvent(item) { return JSON.stringify([item.op, item.evidence.trim()]); }
+  function describeChanges(before, after, schema) {
+    if (!schema) return [];
+    return schema.fields.filter(field => field.enabled).flatMap(field => {
+      const previous = F.get(before || {},field.path), next = F.get(after || {},field.path);
+      return JSON.stringify(previous) === JSON.stringify(next) ? [] : [{fieldId:field.id,label:field.label,path:'/' + field.path.map(part => part.replaceAll('~','~0').replaceAll('/','~1')).join('/'),before:previous ?? null,after:next ?? null}];
+    });
+  }
   function cleanMessage(raw) {
     return String(raw || '').replace(/<(?:UpdateVariable|update)>[\s\S]*?<\/(?:UpdateVariable|update)>/gi, '').replace(/<StatusPlaceHolderImpl\s*\/>/gi, '').trim();
   }
@@ -829,7 +836,7 @@ function createLibeiStatusCore(YAML) {
     if (!/\/chat\/completions$/i.test(u.pathname)) u.pathname += '/chat/completions';
     return u.href;
   }
-  return { F, own, object, clone, inspect, parseYamlData, parseYaml, validateState, normalizeState, assignField, prepareProfileState, prepareUpdateBase, parsePatch, applyPatch, settleUpdate, elapsedMinutes, numericConfig, pointer, cleanMessage, validateRules, migrateRules, upgradeProfile, defaultRules, libeiRules, historicalFieldView, presetName, presetRules, fieldPreset, parseRulePreset, rulePresetDocument, presetFingerprint, presetGenerationFields, presetGenerationEntries, parsePresetState, chooseInitial, snapshotText, updateEntries, messagesFromEntries, storyEntries, storyPrompt, buildMessages, apiUrl };
+  return { F, own, object, clone, inspect, parseYamlData, parseYaml, validateState, normalizeState, assignField, prepareProfileState, prepareUpdateBase, parsePatch, applyPatch, settleUpdate, elapsedMinutes, numericConfig, pointer, describeChanges, cleanMessage, validateRules, migrateRules, upgradeProfile, defaultRules, libeiRules, historicalFieldView, presetName, presetRules, fieldPreset, parseRulePreset, rulePresetDocument, presetFingerprint, presetGenerationFields, presetGenerationEntries, parsePresetState, chooseInitial, snapshotText, updateEntries, messagesFromEntries, storyEntries, storyPrompt, buildMessages, apiUrl };
 }
 
 /* Independent localStorage timeline. No MVU/assistant-variable dependency. */
@@ -1070,7 +1077,7 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
   old?.destroy?.();
   let destroyed = false, busy = false, revision = 0, generating = false, controller = null;
   let autoAllowed = false, stopped = false, generationTargetId = null;
-  let tab = 'state', viewId = null, activeRule = 'initial:0', rulesDirty = false, apiDirty = false, lastPatch = '', drag = null;
+  let tab = 'state', viewId = null, activeRule = 'initial:0', rulesDirty = false, apiDirty = false, lastPatch = '', lastUpdate = null, drag = null;
   let injectDisposer = null, key = '', initialError = '', draftRules, draftProfileKey = '', stored, settingsRaw = null;
   let injection = { enabled:false, content:'', reason:'尚未注入。' };
   let rulesChangePlan = null, rulePresetPlan = null;
@@ -1259,7 +1266,7 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
     T.commit(snapshot,next); autoAllowed = false; viewId = null;
     try { persist({...stored,profiles:{...stored.profiles,[scope.card]:C.clone(plan.rules)}}); }
     catch (error) { refreshInjection(); renderState(); throw Error('预设配置未保存；当前显示已暂停，历史仍保留：' + error.message); }
-    draftRules = C.clone(plan.rules); draftProfileKey = scope.card; rulesDirty = false;
+    draftRules = C.clone(plan.rules); draftProfileKey = scope.card; rulesDirty = false; lastPatch = ''; lastUpdate = null;
     if (initial) {
       try {
         const pending = T.read(scope,plan.rules), old = T.reconcile(snapshot.doc,scope.chat).current;
@@ -1577,11 +1584,23 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
       if (destroyed || abort.signal.aborted || revision !== capturedRevision) return false;
       try { const current = identity(); return current.card === scope.card && current.chatId === scope.chatId && serial(T.transcript(current.chat)) === transcript; } catch (_) { return false; }
     };
+    const timing = target ? {startedAt:Date.now(),finishedAt:null,durationMs:null,targetMessageId:target.id,status:'running'} : null;
+    if (timing) { lastUpdate = timing; renderState(); }
     try {
       const response = await apiBridge.request(messages, { signal: abort.signal, valid, chat: C.clone(scope.chat), profileKey:scope.card, worldbookReferences:target ? C.clone(activeRules().worldbookReferences) : [], targetId: target?.id ?? latestAI(scope.chat), contextMessages: config.contextMessages });
       if (!valid()) throw Error('请求已取消或聊天/配置已改变，结果未提交。');
+      if (timing) timing.status = 'received';
       return response;
-    } finally { if (controller === abort) controller = null; }
+    } catch (error) {
+      if (timing && lastUpdate === timing) {
+        timing.status = abort.signal.aborted ? 'cancelled' : 'failed';
+        lastPatch = JSON.stringify({status:'rejected',targetMessageId:target.id,error:error.message,stateChanged:false},null,2);
+      }
+      throw error;
+    } finally {
+      if (controller === abort) controller = null;
+      if (timing && lastUpdate === timing) { timing.finishedAt = Date.now(); timing.durationMs = Math.max(0,timing.finishedAt - timing.startedAt); renderState(); }
+    }
   }
   async function testApi() {
     if (busy) throw Error('已有请求进行中。');
@@ -1647,8 +1666,7 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
     }
     if (!guard(t)) throw Error('请求期间聊天、正文、回复分支或配置改变，结果已丢弃。');
     if (host.localStorage.getItem(snapshot.key) !== snapshot.raw) throw Error('请求期间此存档被其他操作修改，结果已丢弃。');
-    lastPatch = JSON.stringify({ settlement:result.settlement, appliedPatch:result.patch }, null, 2);
-    return result;
+    return {...result,report:{status:'applied',action:'update',targetMessageId:t.id,changes:C.describeChanges(baseState,result.state,rules.fieldSchema),settlement:result.settlement,appliedPatch:result.patch}};
   }
   /* Preset state generation: one explicit whole-state request, never an ordinary patch. */
   async function generatePresetState(expectedProfile = activeProfileKey()) {
@@ -1674,14 +1692,17 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
         const state = C.parsePresetState(raw,rules,context);
         if (!valid() || host.localStorage.getItem(KEY) !== settingsRaw) throw Error('请求期间聊天、预设或设置已改变，结果未提交。');
         const old = T.reconcile(snapshot.doc,scope.chat).current;
-        const extra = {action:'preset-generation',presetGenerationToken:marker.token,fieldSchema:C.clone(rules.fieldSchema),
+        const extra = {action:'preset-generation',presetGenerationToken:marker.token,fieldSchema:C.clone(rules.fieldSchema),...(lastUpdate?.durationMs != null ? {requestDurationMs:lastUpdate.durationMs} : {}),
           ...(old ? {backup:C.clone(old.state),...(old.fieldSchema ? {backupSchema:C.clone(old.fieldSchema)} : {})} : {})};
         const next = T.append(snapshot,scope.chat,id,state,[],extra);
         delete next.awaitingPresetGeneration;
         T.commit(snapshot,next); revision++;
-        lastPatch = JSON.stringify({action:'preset-generation',floor:id},null,2);
+        lastPatch = JSON.stringify({status:'applied',action:'preset-generation',targetMessageId:id,changes:C.describeChanges(null,state,rules.fieldSchema),generatedState:state,appliedPatch:[]},null,2);
         refreshInjection(); renderState(); status('新预设状态已生成；历史快照仍保留。');
         return {generated:true,floor:id};
+      } catch (error) {
+        if (valid()) lastPatch = JSON.stringify({status:'rejected',targetMessageId:id,error:error.message,stateChanged:false},null,2);
+        throw error;
       } finally { setBusy(false); }
     };
     if (host.navigator?.locks?.request) return host.navigator.locks.request(DEFAULTS.namespace + ':writer:' + scope.card + ':' + scope.chatId,{ifAvailable:true},async lock => { if (!lock) throw Error('另一个页面正在写入此聊天。'); return task(); });
@@ -1733,9 +1754,10 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
           status('独立 API 正在结算第 ' + id + ' 楼（' + (count + 1) + '/' + max + '）；请勿发送新正文。');
           const result = await compute(t, base, snapshot);
           if (!guard(t)) throw Error('目标已改变，未保存。');
-          let next = T.append(snapshot, identity().chat, id, result.state, result.patch, { settlement:result.settlement,fieldSchema:C.clone(activeRules().fieldSchema) });
+          let next = T.append(snapshot, identity().chat, id, result.state, result.patch, { settlement:result.settlement,fieldSchema:C.clone(activeRules().fieldSchema),...(lastUpdate?.durationMs != null ? {requestDurationMs:lastUpdate.durationMs} : {}) });
           next = T.prune(next, identity().chat, 120).doc;
           T.commit(snapshot, next);
+          lastPatch = JSON.stringify(result.report,null,2);
           count++; refreshInjection(result.state); renderState();
           if (forceId !== null) break;
         }
@@ -1803,7 +1825,7 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
     if (busy || generating) throw Error('请等待生成结束。');
     const snapshot = timeline();
     if (!host.confirm('清除本聊天全部独立状态与分支记录？不会删除正文、规则、API设置或其他聊天。清除后只能用初值重新补算；请先导出完整存档。')) return;
-    T.clear(snapshot); revision++; viewId = null; lastPatch = ''; refreshInjection(); renderState(); status('本聊天旧状态已清除，现从初值开始；历史正文需手动补算。');
+    T.clear(snapshot); revision++; viewId = null; lastPatch = ''; lastUpdate = null; refreshInjection(); renderState(); status('本聊天旧状态已清除，现从初值开始；历史正文需手动补算。');
   }
   let autoTimer = null;
   function scheduleAuto() {
@@ -1823,7 +1845,7 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
   function bind(type, fn) { if (!type) return false; native('eventOn')(type, fn); listeners.push([type, fn]); return true; }
   const tavern = bridge.eventTypes || {};
   for (const required of ['CHAT_CHANGED', 'GENERATION_STARTED', 'GENERATION_ENDED']) if (!tavern[required]) throw Error('酒馆事件不兼容：' + required);
-  bind(tavern.CHAT_CHANGED, () => { revision++; autoAllowed = false; cancelRequest(); generating = false; viewId = null; lastPatch = ''; loadProfileDraft(); fillRuleOptions(); renderState(); refreshInjection(); });
+  bind(tavern.CHAT_CHANGED, () => { revision++; autoAllowed = false; cancelRequest(); generating = false; viewId = null; lastPatch = ''; lastUpdate = null; loadProfileDraft(); fillRuleOptions(); renderState(); refreshInjection(); });
   bind(tavern.GENERATION_STARTED, (type, options, dryRun) => {
     if (dryRun || type === 'quiet') return;
     revision++; autoAllowed = false; stopped = false; cancelRequest(); generating = true;
@@ -1898,12 +1920,16 @@ const CSS="#libei-status-popup-v1,#libei-status-popup-v1 *{box-sizing:border-box
     } catch (error) { return output ? { ...output,available:false,reason:error.message } : empty(error.message); }
   }
   function snapshot() {
-    const common = { busy, generating, writerReady, status: statusLine.textContent, statusError: statusLine.dataset.error === '1', lastPatch, selection: viewId === null ? 'latest' : String(viewId), rules: C.clone(activeRules()), profileKey:activeProfileKey(), protagonistName:protagonistName(), injection:C.clone(injection), config: { automatic: stored.config.automatic, contextMessages: stored.config.contextMessages, sendNumericToStory: stored.config.sendNumericToStory }, awaitingPresetGeneration:false, canUpdate: !updateBtn.disabled };
+    const common = { busy, generating, writerReady, status: statusLine.textContent, statusError: statusLine.dataset.error === '1', lastPatch, lastUpdate:C.clone(lastUpdate), selection: viewId === null ? 'latest' : String(viewId), rules: C.clone(activeRules()), profileKey:activeProfileKey(), protagonistName:protagonistName(), injection:C.clone(injection), config: { automatic: stored.config.automatic, contextMessages: stored.config.contextMessages, sendNumericToStory: stored.config.sendNumericToStory }, awaitingPresetGeneration:false, canUpdate: !updateBtn.disabled };
     try {
       const scope = identity(), snap = timeline(), awaitingPresetGeneration = !!snap.doc.awaitingPresetGeneration, floor = awaitingPresetGeneration && viewId === null ? latestAI(scope.chat) : selectedFloor();
       const selected = snap.view.path.find(node => node.id === floor), fields = awaitingPresetGeneration && viewId === null ? {state:null,error:''} : viewId === null ? fieldStateView(selected) : C.historicalFieldView(selected);
       const stateFieldSchema = awaitingPresetGeneration && viewId === null ? activeRules().fieldSchema : selected ? (viewId === null ? activeRules().fieldSchema : fields.schema) : null;
-      return { ...common,awaitingPresetGeneration,fieldSchema:C.clone(activeRules().fieldSchema),stateFieldSchema:C.clone(stateFieldSchema),fieldStateError:fields.error,canUpdate:common.canUpdate && !fields.error, cardName: scope.name, chatId: scope.chatId, floor, latest: latestAI(scope.chat), pending: [...snap.view.pending], state:fields.state, floors: scope.chat.map((m,id) => ({ id, ai: !m.is_user && !m.is_system, settled: snap.view.path.some(n=>n.id===id) })).filter(m=>m.ai), error: '' };
+      const parent = selected?.parent ? snap.doc.nodes.find(node => node.token === selected.parent) : null;
+      const savedDetails = selected && !(awaitingPresetGeneration && viewId === null) ? {status:'applied',action:selected.action || 'update',targetMessageId:selected.id,completedAt:selected.createdAt,changes:C.describeChanges(parent?.state || null,selected.state,stateFieldSchema),appliedPatch:selected.patch || [],...(selected.settlement ? {settlement:selected.settlement} : {}),...(selected.action === 'preset-generation' || selected.initialId ? {generatedState:selected.state} : {})} : null;
+      const details = viewId === null && lastPatch ? lastPatch : savedDetails ? JSON.stringify(savedDetails,null,2) : '';
+      const timing = viewId === null && lastUpdate ? C.clone(lastUpdate) : selected && !(awaitingPresetGeneration && viewId === null) ? {finishedAt:selected.createdAt,durationMs:selected.requestDurationMs ?? null,status:'received',targetMessageId:selected.id} : null;
+      return { ...common,lastPatch:details,lastUpdate:timing,awaitingPresetGeneration,fieldSchema:C.clone(activeRules().fieldSchema),stateFieldSchema:C.clone(stateFieldSchema),fieldStateError:fields.error,canUpdate:common.canUpdate && !fields.error, cardName: scope.name, chatId: scope.chatId, floor, latest: latestAI(scope.chat), pending: [...snap.view.pending], state:fields.state, floors: scope.chat.map((m,id) => ({ id, ai: !m.is_user && !m.is_system, settled: snap.view.path.some(n=>n.id===id) })).filter(m=>m.ai), error: '' };
     } catch (error) { return { ...common, state: null, floors: [], pending: [], floor: -1, latest: -1, error: error.message, canUpdate: false }; }
   }
   const engineApi = {

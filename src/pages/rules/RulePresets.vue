@@ -76,7 +76,7 @@ defineExpose({refresh});
 <template>
  <section class="libei-presets" data-rule-presets aria-label="变量预设" :aria-busy="busy">
   <div class="libei-preset-head"><h3>变量预设</h3><span>当前草稿：{{ rules?.presetName || '未命名' }}</span></div>
-  <p>预设包含字段、字段更新规则和多套初值方案。载入后默认无初值，可选择一套方案；确认应用前均为草稿，其他配置和旧快照保留。</p>
+  <p>预设包含字段、字段更新规则和多套初值方案。载入后默认无初值，可选择一套方案；保存前均为草稿，其他配置和旧快照保留。</p>
   <label>选择预设<select v-model="selected" class="bbs-input" data-preset-select :disabled="disabled||busy"><option v-for="preset in presets" :key="preset.id" :value="preset.id">{{ preset.label }}{{ preset.builtin ? ' · 内置' : ' · 自建' }}</option></select></label>
   <div class="libei-preset-actions">
    <button class="bbs-btn" type="button" data-action="load-rule-preset" :disabled="disabled||busy||!chosen" @click="load">载入预设草稿</button>

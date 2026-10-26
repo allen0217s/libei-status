@@ -225,7 +225,7 @@ const updateBody=source.slice(source.indexOf('  async function runUpdates('),sou
 const stateViewBody=source.slice(source.indexOf('  function fieldStateView('),source.indexOf('  function assertFieldIdle('));
 const updateGuardBody=source.slice(source.indexOf('  function containsUpdates('),source.indexOf('  function status('));
 vm.runInNewContext(`globalThis.makeHarness=function(C,createTimeline,genericRules,builtinLibeiRules,initial){
-  const copy=value=>JSON.parse(JSON.stringify(value));let stored=copy(initial),settingsRaw=JSON.stringify(stored),revision=0,viewId=null,rulePresetPlan=null,draftRules=null,draftProfileKey='',rulesDirty=false,apiDirty=false,destroyed=false,busy=false,generating=false,writable=true,writerReady=true,autoAllowed=false,generationTargetId=null,lastPatch='';
+  const copy=value=>JSON.parse(JSON.stringify(value));let stored=copy(initial),settingsRaw=JSON.stringify(stored),revision=0,viewId=null,rulePresetPlan=null,draftRules=null,draftProfileKey='',rulesDirty=false,apiDirty=false,destroyed=false,busy=false,generating=false,writable=true,writerReady=true,autoAllowed=false,generationTargetId=null,lastPatch='',lastUpdate=null;
   let scope={card:'role.png',chatId:'chat',name:'fixture',chat:[{is_user:false,mes:'opening'}]},downloads=[],requests=[],writes=0,timelineWrites=0,reply='',requestHook=null,failTimeline=false,failSettings=false;
   const serial=JSON.stringify,KEY='fixture-settings',memory=new Map([[KEY,settingsRaw]]),DEFAULTS={namespace:'fixture-preset'};
   const activeProfileKey=()=>scope.card,identity=()=>scope,activeRules=()=>stored.profiles[scope.card]||stored.rules;

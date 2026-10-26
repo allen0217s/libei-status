@@ -26,8 +26,7 @@ const checks = [];
       await tap(action(id,'confirm-type'));
       await wait(`!__root.querySelector(${JSON.stringify(action(id,'confirm-type'))})`);
     };
-    const saveReview = async () => { await click('保存规则'); await wait("!!__root.querySelector('[data-schema-review]')"); };
-    const confirmReview = async () => { await tap('[data-action=confirm-schema]'); await wait("!__root.querySelector('[data-schema-review]') && !__root.querySelector('.libei-rule-actions .bbs-btn-primary').disabled"); };
+    const saveFields = async () => { await click('保存规则'); await wait("!__root.querySelector('.libei-rule-actions .bbs-btn-primary').disabled");assert.equal(await E("!!__root.querySelector('[data-schema-review]')"),false); };
     const errorFrom = body => E(`(async()=>{try{${body};return ''}catch(error){return error.message}})()`);
     const pathFor = id => ['主角','自定义',id];
     const pathText = id => '/'+pathFor(id).join('/');
@@ -131,12 +130,12 @@ const checks = [];
       assert.equal(await memory(),before);
       await input(control(manualId,'default'),'7');
     });
-    await check('Schema review saves only config; missing defaults stay in memory until ordinary write',async()=>{
+    await check('One-click save changes only config; missing defaults stay in memory until ordinary write',async()=>{
       const before=await memory(), storedBefore=await timelineBytes(), count=await calls();
-      await saveReview(); assert.equal(await memory(),before);
+      assert.equal(await memory(),before);
       assert.equal((await snap()).rules.fieldSchema.fields.length,baselineCount);
       assert.deepEqual((await snap()).state,baselineState);
-      await confirmReview();
+      await saveFields();
       const saved=await snap(); assert.equal(saved.rules.fieldSchema.fields.length,baselineCount+2);
       assert.deepEqual(saved.rules.fieldSchema.fields.find(field=>field.id===manualId).path,pathFor(manualId));
       assert.equal(saved.rules.fieldSchema.fields.find(field=>field.id===manualId).label,'关系刻度');
@@ -200,8 +199,7 @@ const checks = [];
       assert.equal(await currentValue(manualId),12);
     });
     await check('Disable is safe removal: hidden from active state but physical value retained',async()=>{
-      await open('rules'); await tap(action(enumId,'disable')); await saveReview();
-      await confirmReview();
+      await open('rules'); await tap(action(enumId,'disable')); await saveFields();
       await open('state');
       assert.equal(await E(`!!__root.querySelector('[data-field-value="${enumId}"]')`),false);
       assert.equal(await currentValue(enumId),'高兴');
@@ -211,18 +209,15 @@ const checks = [];
       assert.ok(await errorFrom('await __libeiV2App.api.update()'));
       assert.equal(await memory(),before);
     });
-    await check('Any draft edit invalidates pending schema review and preserves its local editor',async()=>{
-      await open('rules'); await input(control(manualId,'label'),'关系草稿一'); await saveReview();
-      await input(control(manualId,'label'),'关系草稿二'); await wait("!__root.querySelector('[data-schema-review]')");
+    await check('Draft editing remains local and invalid data blocks one-click save without losing the editor',async()=>{
+      await open('rules');await input(control(manualId,'label'),'关系草稿一');await input(control(manualId,'label'),'关系草稿二');
       assert.equal((await snap()).rules.fieldSchema.fields.find(field=>field.id===manualId).label,'关系刻度');
-      await saveReview(); await input(control(manualId,'default'),'{bad');
-      await wait("!__root.querySelector('[data-schema-review]')");
+      await input(control(manualId,'default'),'{bad');await click('保存规则');await wait("!!__root.querySelector('.libei-rules-page [role=alert]')");
       assert.equal(await E(`__root.querySelector(${JSON.stringify(control(manualId,'default'))}).value`),'{bad');
-      await click('放弃修改');
-      await wait(`__root.querySelector(${JSON.stringify(control(manualId,'label'))}).value==='关系刻度'`);
+      await click('放弃修改');await wait(`__root.querySelector(${JSON.stringify(control(manualId,'label'))}).value==='关系刻度'`);
     });
-    await check('Role changes drop UI reviews and engine refuses stale cross-role plan commits',async()=>{
-      await input(control(manualId,'label'),'不应跨角色保存'); await saveReview();
+    await check('Role changes drop drafts and engine refuses stale cross-role plan commits',async()=>{
+      await input(control(manualId,'label'),'不应跨角色保存');
       await E("(()=>{window.__fieldChat=__previewContext.chat;const rules=__libeiV2App.api.snapshot().rules;rules.fieldSchema.fields.find(field=>field.system==='money').label='stale money';window.__staleFieldPlan=__libeiV2App.api.previewRulesChange(rules,'field-ui.png')})()");
       await switchRole('另一字段角色','field-other.png','field-other-chat');
       await wait("!__root.querySelector('[data-schema-review]')");
@@ -242,8 +237,9 @@ const checks = [];
       await wait(`__root.querySelectorAll('[data-field-id]').length===${count+1}`);
       const id=(await fieldIds()).at(-1);
       assert.ok(await E(`__root.querySelector(${JSON.stringify(row(id))}).textContent.includes(${JSON.stringify('主角 / 自定义2 / '+id)})`));
-      await saveReview(); assert.deepEqual((await snap()).state,before);
-      await tap('[data-action=cancel-schema]'); await click('放弃修改');
+      const timelineBefore=await E("JSON.stringify([...__memory.entries()].filter(([key])=>key.includes(':chat:field-namespace.png:')))");
+      await saveFields();assert.equal((await snap()).state.主角.自定义.retained,before.主角.自定义.retained);
+      assert.equal(await E("JSON.stringify([...__memory.entries()].filter(([key])=>key.includes(':chat:field-namespace.png:')))"),timelineBefore);
       await switchRole('字段回归','field-ui.png','field-ui-chat','__fieldChat');
       assert.equal(await currentValue(manualId),12);
     });

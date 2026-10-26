@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UpdateOptions from './UpdateOptions.vue';
 import Collapsible from '@/components/Collapsible.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import BbsSelect from '@/components/BbsSelect.vue';
@@ -217,6 +218,7 @@ onBeforeUnmount(() => { editorEpoch++; clearTimeout(blurTimer); });
       <button type="button" role="switch" class="bbs-toggle" :class="{ 'is-on': apiSettings.enabled }" :aria-checked="apiSettings.enabled" @click="apiSettings.enabled = !apiSettings.enabled"><span class="bbs-toggle-knob"></span></button>
     </div>
     <div class="bbs-sections">
+      <UpdateOptions />
       <Collapsible title="存档与存储管理" :open="false">
         <p class="bbs-field-hint">状态链仍保存在此浏览器，不随角色卡或聊天自动同步。换设备前请导出完整存档。主 API 请求取消仅丢弃结果，不强停正在运行的酒馆主模型。</p>
         <p v-if="operationError || view.error" class="libei-storage-error" role="alert">{{ operationError || view.error }}</p>
