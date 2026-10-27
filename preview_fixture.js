@@ -17,7 +17,7 @@
   chat:[{is_user:false,is_system:false,mes:fixture.rules.initials[1].match,swipe_id:0}],
   getCurrentChatId:()=>window.__chatId||'libei-v2-preview',
   eventTypes,eventSource:{on:(type,fn)=>{if(!callbacks.has(type))callbacks.set(type,[]);callbacks.get(type).push(fn)},removeListener:(type,fn)=>callbacks.set(type,(callbacks.get(type)||[]).filter(f=>f!==fn))},
-  setExtensionPrompt:(id,content)=>{window.__storyPrompt=content},
+  setExtensionPrompt:(id,content,position,depth,scan,role)=>{window.__storyPrompt=content;window.__storyPlacement={id,position,depth,scan,role}},
   extensionSettings:{libei_status_v2:{enabled:true,legacyMigrationResolved:true,ui:{theme:'day',navPosition:'auto',navTapClose:true,showTopBar:true,showQuickReply:true,showFloorPanel:true,showOrb:true,orbImage:'',orbShape:'bookmark',orbOpacity:62,orbSize:48},channels:[],assignments:{summary:'',resummary:''},exclusions:{excludedChars:[],excludedWorldNames:[],excludedWorldInfoPatterns:['\\[mvu[\\s\\S]*?\\]'],renderWorldInfoTemplates:false}}},
   getRequestHeaders:()=>({'Content-Type':'application/json','X-CSRF-Token':'preview-csrf'}),
   saveSettingsDebounced:()=>{window.__persistCount++},

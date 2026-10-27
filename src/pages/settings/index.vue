@@ -11,9 +11,12 @@ import { getContext } from '@/st/context';
 import { toast } from '@/st/toast';
 import { ui, THEMES, ORB_SHAPES } from '@/state/ui';
 import { computed, onBeforeUnmount, ref } from 'vue';
-import { engineView as view, operationError, act } from '@/state/engine';
+import { engineView as view, operationError, act, runEngine } from '@/state/engine';
 
 const archiveInput = ref<HTMLInputElement | null>(null);
+const confirmClearOpen = ref(false), confirmPruneOpen = ref(false);
+async function clearArchive() { try { await runEngine('clear'); confirmClearOpen.value = false; } catch {} }
+async function pruneArchive() { try { await runEngine('cleanBranches'); confirmPruneOpen.value = false; } catch {} }
 function importArchive(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
@@ -159,40 +162,6 @@ function importLegacy() {
   } catch (e) { toast(e instanceof Error ? e.message : String(e), 'error'); }
 }
 
-const excludeWorldOpen = ref(false);
-const excludeWorldSearch = ref('');
-function readWorldNamesFromDom(): string[] {
-  return [...document.querySelectorAll<HTMLOptionElement>('#world_editor_select option')]
-    .filter(o => o.value !== '' && o.textContent).map(o => o.textContent!);
-}
-const worldNames = computed(() => {
-  if (!excludeWorldOpen.value) return [];
-  const getNames = getContext()?.getWorldInfoNames;
-  const names = getNames ? getNames() : readWorldNamesFromDom();
-  return [...new Set(names.map(n => n?.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh'));
-});
-const filteredWorldNames = computed(() => {
-  const q = excludeWorldSearch.value.trim().toLowerCase();
-  return q ? worldNames.value.filter(n => n.toLowerCase().includes(q)) : worldNames.value;
-});
-function openExcludeWorld() { excludeWorldSearch.value = ''; excludeWorldOpen.value = true; }
-function closeExcludeWorld() { excludeWorldOpen.value = false; }
-function isWorldExcluded(name: string) { return apiSettings.exclusions.excludedWorldNames.includes(name); }
-function toggleWorldExcluded(name: string) {
-  const list = apiSettings.exclusions.excludedWorldNames;
-  const idx = list.indexOf(name);
-  if (idx >= 0) list.splice(idx, 1); else list.push(name);
-}
-const wiPatternDraft = ref('');
-function addWiPattern() {
-  const pat = wiPatternDraft.value.trim();
-  if (pat && !apiSettings.exclusions.excludedWorldInfoPatterns.includes(pat)) apiSettings.exclusions.excludedWorldInfoPatterns.push(pat);
-  wiPatternDraft.value = '';
-}
-function removeWiPattern(pat: string) {
-  const idx = apiSettings.exclusions.excludedWorldInfoPatterns.indexOf(pat);
-  if (idx >= 0) apiSettings.exclusions.excludedWorldInfoPatterns.splice(idx, 1);
-}
 const excludeCharOpen = ref(false);
 const excludeCharSearch = ref('');
 const charNames = computed(() => {
@@ -210,30 +179,30 @@ onBeforeUnmount(() => { editorEpoch++; clearTimeout(blurTimer); });
 
 <template>
   <section class="bbs-page">
-    <div class="bbs-page-head"><h2>设置</h2><span class="bbs-ver">男主状态 v2</span></div>
+    <div class="bbs-page-head"><h2>设置</h2><span class="bbs-ver">通用状态 v3</span></div>
     <hr class="bbs-rule" />
     <div class="bbs-master" :class="{ 'is-off': !apiSettings.enabled }">
       <span class="bbs-master-spine" aria-hidden="true"></span>
-      <div class="bbs-master-text"><span class="bbs-master-title">男主状态 · 状态更新</span></div>
+      <div class="bbs-master-text"><span class="bbs-master-title">通用状态 · 状态更新</span></div>
       <button type="button" role="switch" class="bbs-toggle" :class="{ 'is-on': apiSettings.enabled }" :aria-checked="apiSettings.enabled" @click="apiSettings.enabled = !apiSettings.enabled"><span class="bbs-toggle-knob"></span></button>
     </div>
     <div class="bbs-sections">
       <UpdateOptions />
       <Collapsible title="存档与存储管理" :open="false">
-        <p class="bbs-field-hint">状态链仍保存在此浏览器，不随角色卡或聊天自动同步。换设备前请导出完整存档。主 API 请求取消仅丢弃结果，不强停正在运行的酒馆主模型。</p>
+        <p class="bbs-field-hint">状态和预设绑定保存在当前聊天。完整存档不含 API 密钥。最近保留 80 次状态快照，旧版浏览器存档不自动删除。</p>
         <p v-if="operationError || view.error" class="libei-storage-error" role="alert">{{ operationError || view.error }}</p>
         <div class="libei-storage-actions">
-          <button class="bbs-btn" type="button" :disabled="!view.state" @click="act('exportState')"><Icon name="download" />导出当前状态</button>
-          <button class="bbs-btn" type="button" @click="act('exportTimeline')">导出完整存档</button>
-          <button class="bbs-btn" type="button" @click="archiveInput?.click()">导入完整存档</button>
-          <button class="bbs-btn" type="button" @click="act('acquireLease')">启用本页写入</button>
-          <button class="bbs-btn" type="button" @click="act('cleanBranches')">清理非活动分支</button>
-          <button class="bbs-btn" type="button" @click="act('recoverGeneration')">恢复生成标记</button>
-          <button class="bbs-btn" type="button" :disabled="!view.rules?.initialChoice || !view.state" @click="act('reset')">用初值重置末楼</button>
-          <button class="bbs-btn" type="button" @click="act('restore')">恢复重置备份</button>
-          <button class="bbs-btn bbs-btn-danger" type="button" @click="act('clear')">清除本聊天状态</button>
+          <button class="bbs-btn" type="button" :disabled="!view.state" @click="act('exportState')">导出当前状态</button>
+          <button class="bbs-btn" type="button" :disabled="!view.profileKey" @click="act('exportTimeline')">导出完整存档</button>
+          <button class="bbs-btn" type="button" :disabled="view.busy || view.generating" @click="archiveInput?.click()">导入并替换存档</button>
+          <button class="bbs-btn" type="button" :disabled="view.busy || view.generating" @click="confirmPruneOpen = true">仅保留当前快照</button>
+          <button class="bbs-btn bbs-btn-danger" type="button" :disabled="view.busy || view.generating" @click="confirmClearOpen = true">清空本聊天状态</button>
         </div>
         <input ref="archiveInput" type="file" accept=".json,application/json" hidden aria-label="导入完整状态存档" @change="importArchive" />
+        <template v-if="view.legacyAvailable">
+          <p class="bbs-field-hint">检测到旧版聊天存档。迁移只复制已核对分支的当前状态；旧字段权限、程序数值结算、世界书引用和多套初值不迁入。新预设需自行补充更新指令；全部旧快照仍保留在原浏览器存储中。</p>
+          <button class="bbs-btn" type="button" :disabled="view.history?.length || view.busy || view.generating" @click="act('migrateLegacy')">复制旧版当前状态（停用旧结算）</button>
+        </template>
         <p class="bbs-field-hint libei-storage-status" role="status">{{ view.status }}</p>
       </Collapsible>
       <Collapsible title="基本设置" :open="false">
@@ -263,7 +232,7 @@ onBeforeUnmount(() => { editorEpoch++; clearTimeout(blurTimer); });
       <Collapsible title="副 API" :open="false">
         <div class="bbs-field bbs-assign"><div class="bbs-assign-row"><span class="bbs-field-label">状态更新使用</span><BbsSelect :model-value="apiSettings.assignments.summary" :options="channelOptions" class="bbs-assign-select" aria-label="状态更新使用的渠道" @update:model-value="chooseAssignment" /></div></div>
         <p class="bbs-field-hint">跟随主 API 使用酒馆主界面当前连接，不是独立 primary；不会在失败时自动切换渠道。主 API 无法保证立即取消，过期结果会由状态更新引擎丢弃；generateRaw 只返回文本，无法观测 finish_reason 或保证检测截断。副渠道可拒绝 finish_reason=length 的截断响应。</p>
-        <p class="bbs-field-hint">渠道仅供男主状态使用，不读取或修改柏宝共享渠道。密钥在点「完成」后以明文存入当前酒馆账户设置，可能随账户跨设备同步；仅在可信服务器保存。</p>
+        <p class="bbs-field-hint">渠道仅供通用状态使用，不读取或修改柏宝共享渠道。密钥在点「完成」后以明文存入当前酒馆账户设置，可能随账户跨设备同步；仅在可信服务器保存。</p>
         <div v-if="migrationPending" class="bbs-field"><button class="bbs-btn bbs-btn-sm" type="button" @click="importLegacy">显式导入旧版 API 草稿</button><button class="bbs-btn bbs-btn-sm" type="button" @click="useMainWithoutImport">不导入，明确跟随主 API</button><p class="bbs-field-hint">不会自动上传旧版本地密钥；导入后仍需点完成保存，关闭草稿即放弃。</p></div>
         <hr class="bbs-rule" />
         <div class="bbs-channel-bar"><span class="bbs-field-label">渠道</span><button class="bbs-btn bbs-btn-primary bbs-btn-sm" type="button" @click="addChannel"><Icon name="plus" />添加渠道</button></div>
@@ -271,24 +240,11 @@ onBeforeUnmount(() => { editorEpoch++; clearTimeout(blurTimer); });
         <p v-else class="bbs-field-hint">还没有渠道。点「添加渠道」配置状态更新使用的 API。</p>
       </Collapsible>
       <Collapsible title="排除角色" :open="false">
-        <p class="bbs-field-hint">名单中的单角色聊天停用男主状态辅助请求；按名字匹配，同名卡一并排除。群聊不按单名排除。</p>
+        <p class="bbs-field-hint">名单中的单角色聊天停用通用状态辅助请求；按名字匹配，同名卡一并排除。此版本仅处理单角色聊天。</p>
         <button class="bbs-btn bbs-btn-sm" type="button" @click="excludeCharSearch='';excludeCharOpen=true"><Icon name="edit" />编辑名单</button>
         <ul class="bbs-exclude-chips"><li v-for="name in apiSettings.exclusions.excludedChars" :key="name" class="bbs-exclude-chip"><span>{{name}}</span><button class="bbs-exclude-chip-x" type="button" title="移出名单" @click="toggleCharExcluded(name)"><Icon name="close" /></button></li></ul>
       </Collapsible>
-      <Collapsible title="排除世界书" :open="false">
-        <p class="bbs-field-hint">仅剔除男主状态辅助请求中的世界书参考，不改变主对话世界书、原书文件或全局启停。跟随主 API 时也适用。勾选即时保存，关闭不回滚。</p>
-        <label class="bbs-switch-row"><span class="bbs-field-label">渲染世界书模板</span><input v-model="apiSettings.exclusions.renderWorldInfoTemplates" type="checkbox" class="bbs-checkbox" /></label>
-        <p class="bbs-field-hint">默认关闭。开启会展开宏，并可能通过 ST-Prompt-Template 执行世界书 EJS 代码、读写变量；只对可信世界书开启，取消请求不能撤销已发生的模板副作用。</p>
-        <hr class="bbs-rule" />
-        <div class="bbs-channel-bar"><span class="bbs-field-label">整本排除 · 已选 {{apiSettings.exclusions.excludedWorldNames.length}} 本</span><button class="bbs-btn bbs-btn-primary bbs-btn-sm" type="button" @click="openExcludeWorld"><Icon name="edit" />编辑名单</button></div>
-        <ul v-if="apiSettings.exclusions.excludedWorldNames.length" class="bbs-exclude-chips"><li v-for="name in apiSettings.exclusions.excludedWorldNames" :key="name" class="bbs-exclude-chip"><span class="bbs-exclude-chip-name">{{name}}</span><button class="bbs-exclude-chip-x" type="button" title="移出名单" @click="toggleWorldExcluded(name)"><Icon name="close" /></button></li></ul>
-        <p v-else class="bbs-field-hint">未整本排除世界书。</p>
-        <hr class="bbs-rule" />
-        <div class="bbs-field-head"><span class="bbs-field-label">按条目名过滤</span></div>
-        <p class="bbs-field-hint">匹配条目备注名 comment，不分大小写，支持正则；非法正则降级字面包含。默认过滤 MVU 机制条目，可删除。旧版酒馆无法提供条目对象且规则非空时停止辅助请求，避免排除失效。</p>
-        <div class="bbs-striptag-bar"><input v-model="wiPatternDraft" class="bbs-input" type="text" placeholder="条目名或正则，如 附加 或 ^规则" @keydown.enter.prevent="addWiPattern" /><button class="bbs-btn bbs-btn-primary bbs-btn-sm" type="button" @click="addWiPattern"><Icon name="plus" />添加</button></div>
-        <ul v-if="apiSettings.exclusions.excludedWorldInfoPatterns.length" class="bbs-exclude-chips"><li v-for="pat in apiSettings.exclusions.excludedWorldInfoPatterns" :key="pat" class="bbs-exclude-chip"><span class="bbs-exclude-chip-name">{{pat}}</span><button class="bbs-exclude-chip-x" type="button" title="移除规则" @click="removeWiPattern(pat)"><Icon name="close" /></button></li></ul>
-      </Collapsible>
+
     </div>
 
     <ModalMask :open="!!editingChannel" @close="closeChannel">
@@ -310,7 +266,9 @@ onBeforeUnmount(() => { editorEpoch++; clearTimeout(blurTimer); });
         <ConfirmDialog v-model:open="confirmDeleteOpen" title="删除渠道" confirm-text="删除" confirm-icon="trash" tone="danger" top-layer @confirm="confirmRemoveChannel">确定删除渠道「{{editingChannel.name || '未命名渠道'}}」吗？已指派该渠道的任务会改为跟随主 API。</ConfirmDialog>
       </div>
     </ModalMask>
-    <ModalMask :open="excludeWorldOpen" @close="closeExcludeWorld"><div class="bbs-modal" role="dialog" aria-modal="true" aria-label="编辑排除世界书名单"><header class="bbs-modal-head"><span class="bbs-modal-title">整本排除世界书</span><button class="bbs-icon-mini" type="button" title="关闭" @click="closeExcludeWorld"><Icon name="close" /></button></header><input v-model="excludeWorldSearch" class="bbs-input" type="search" placeholder="搜索世界书名…" spellcheck="false" /><div class="bbs-exclude-list"><label v-for="name in filteredWorldNames" :key="name" class="bbs-exclude-row"><input type="checkbox" class="bbs-checkbox" :checked="isWorldExcluded(name)" @change="toggleWorldExcluded(name)" /><span class="bbs-exclude-row-name">{{name}}</span></label><p v-if="!worldNames.length" class="bbs-field-hint">未读取到世界书，请先在酒馆加载 / 挂载。</p><p v-else-if="!filteredWorldNames.length" class="bbs-field-hint">没有匹配的世界书。</p></div><footer class="bbs-modal-foot"><span class="bbs-exclude-count">共 {{worldNames.length}} 本 · 已排除 {{apiSettings.exclusions.excludedWorldNames.length}}</span><span class="bbs-modal-foot-spacer"></span><button class="bbs-btn bbs-btn-primary" type="button" @click="closeExcludeWorld">完成</button></footer></div></ModalMask>
+
+    <ConfirmDialog v-model:open="confirmClearOpen" title="清空本聊天状态" confirm-text="清空" tone="danger" :busy="view.busy" @confirm="clearArchive">清空当前聊天的新版状态和历史快照。旧版浏览器存档仍保留，建议先导出完整存档。</ConfirmDialog>
+    <ConfirmDialog v-model:open="confirmPruneOpen" title="清理历史快照" confirm-text="仅保留当前快照" tone="danger" :busy="view.busy" @confirm="pruneArchive">删除当前聊天的其他新版历史快照，建议先导出完整存档。</ConfirmDialog>
     <ModalMask :open="excludeCharOpen" @close="excludeCharOpen=false"><div class="bbs-modal" role="dialog" aria-modal="true" aria-label="编辑排除角色名单"><header class="bbs-modal-head"><span class="bbs-modal-title">排除角色</span><button class="bbs-icon-mini" type="button" title="关闭" @click="excludeCharOpen=false"><Icon name="close" /></button></header><input v-model="excludeCharSearch" class="bbs-input" type="search" placeholder="搜索角色名…" /><div class="bbs-exclude-list"><label v-for="name in filteredCharNames" :key="name" class="bbs-exclude-row"><input type="checkbox" class="bbs-checkbox" :checked="apiSettings.exclusions.excludedChars.includes(name)" @change="toggleCharExcluded(name)" /><span class="bbs-exclude-row-name">{{name}}</span></label></div><footer class="bbs-modal-foot"><span class="bbs-modal-foot-spacer"></span><button class="bbs-btn bbs-btn-primary" type="button" @click="excludeCharOpen=false">完成</button></footer></div></ModalMask>
   </section>
 </template>

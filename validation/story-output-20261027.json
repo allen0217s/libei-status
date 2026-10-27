@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-27",
+  "scope": "Local source and production bundle only; no install, publish, real model request or worldbook write.",
+  "upstream": "AlbusKen/shujuku@0d9cc1a50417398f1e96834b6a3be684f94839f2",
+  "checks": {
+    "typecheck": "passed",
+    "build": "passed",
+    "unit_suites": "all npm test suites passed",
+    "new_story_unit_checks": 8,
+    "story_browser_checks": 6,
+    "context_browser_checks": 10,
+    "browser_host": "mock SillyTavern on localhost, real Chromium, no external requests"
+  },
+  "known_gaps": [
+    "Real SillyTavern installation and final outgoing request not tested.",
+    "Unchanged test:fields suite fails on its baseline money-field assumption; reproduced using the pre-change bundled index.js."
+  ],
+  "backup": "C:\\Users\\hjh29\\Study\\card\\libei_git_publish\\libei-status\\_backups\\story-output-20261027-105425",
+  "root_bundle_sha256": "ce36325fb22f79051f6b8d97977e130df6ec440e352827f43cba931e4446a0af"
+}

@@ -1,0 +1,237 @@
+{
+  "date": "2026-10-27",
+  "kind": "isolated-unit",
+  "realNetwork": false,
+  "passed": 57,
+  "failed": 0,
+  "results": [
+    {
+      "name": "JSON and YAML preserve nested values, arrays, booleans and null",
+      "status": "passed"
+    },
+    {
+      "name": "Aliases, anchors, tags, duplicate keys and multi-document YAML reject",
+      "status": "passed"
+    },
+    {
+      "name": "Prototype keys, root arrays and nonfinite numbers reject",
+      "status": "passed"
+    },
+    {
+      "name": "Accessors reject without execution; cycles, sparse arrays and non-JSON values reject",
+      "status": "passed"
+    },
+    {
+      "name": "Depth, node and character limits reject oversized state",
+      "status": "passed"
+    },
+    {
+      "name": "Status extraction preserves narrative and accepts full updates",
+      "status": "passed"
+    },
+    {
+      "name": "Unclosed, nested, multiple and missing status blocks reject",
+      "status": "passed"
+    },
+    {
+      "name": "YAML fences and plain standalone objects parse",
+      "status": "passed"
+    },
+    {
+      "name": "Invalid envelopes reject unsupported modes, extra keys and root arrays",
+      "status": "passed"
+    },
+    {
+      "name": "Merge Patch recursively merges objects, replaces arrays and deletes null fields atomically",
+      "status": "passed"
+    },
+    {
+      "name": "Preset copy/paste round-trip includes only name, template and instructions",
+      "status": "passed"
+    },
+    {
+      "name": "Explicit legacy field conversion keeps defaults and text rules but rejects unsafe paths",
+      "status": "passed"
+    },
+    {
+      "name": "Progress inference honors explicit bounds and marks assumed 100-point scales",
+      "status": "passed"
+    },
+    {
+      "name": "All built-ins validate without a fixed character or private state",
+      "status": "passed"
+    },
+    {
+      "name": "Prompt assembly escapes macro openers and treats template values as examples",
+      "status": "passed"
+    },
+    {
+      "name": "Fresh chat reads do not create state or touch unrelated metadata",
+      "status": "passed"
+    },
+    {
+      "name": "Metadata writes preserve unrelated keys and create a matched checkpoint",
+      "status": "passed"
+    },
+    {
+      "name": "A changed metadata revision rejects overwrite",
+      "status": "passed"
+    },
+    {
+      "name": "Failed metadata persistence rolls back the owned key",
+      "status": "passed"
+    },
+    {
+      "name": "Archives enforce both card and chat ownership",
+      "status": "passed"
+    },
+    {
+      "name": "Replacing the chat array invalidates a captured scope even with reused context",
+      "status": "passed"
+    },
+    {
+      "name": "Edits and swipes invalidate dependent checkpoints and restore matching branches",
+      "status": "passed"
+    },
+    {
+      "name": "History is bounded to the most recent 80 checkpoints",
+      "status": "passed"
+    },
+    {
+      "name": "Renaming an existing chat retains its metadata state and rebinds on next save",
+      "status": "passed"
+    },
+    {
+      "name": "A second plugin page cannot write while the first page holds the native lock",
+      "status": "passed"
+    },
+    {
+      "name": "Missing Web Locks keeps state operations read-only",
+      "status": "passed"
+    },
+    {
+      "name": "Missing host APIs and group chats report clear capability errors",
+      "status": "passed"
+    },
+    {
+      "name": "Inline injection uses the configured depth without worldbook access",
+      "status": "passed"
+    },
+    {
+      "name": "Inline extraction makes no API request and preserves raw transcript bytes",
+      "status": "passed"
+    },
+    {
+      "name": "Inline deltas use previous floors; duplicate notifications do not write twice",
+      "status": "passed"
+    },
+    {
+      "name": "Invalid model output retains the previous state and history",
+      "status": "passed"
+    },
+    {
+      "name": "Preset bindings are per chat and switching preserves archived history",
+      "status": "passed"
+    },
+    {
+      "name": "Background generation makes one explicit main request without worldbook content",
+      "status": "passed"
+    },
+    {
+      "name": "Background generation uses only the selected secondary channel",
+      "status": "passed"
+    },
+    {
+      "name": "A missing channel never silently falls back to main",
+      "status": "passed"
+    },
+    {
+      "name": "Chat switches discard delayed main API results",
+      "status": "passed"
+    },
+    {
+      "name": "Editing a reply discards pending independent output",
+      "status": "passed"
+    },
+    {
+      "name": "Changed configuration rejects stale independent output",
+      "status": "passed"
+    },
+    {
+      "name": "Main cancellation waits for completion then discards the response",
+      "status": "passed"
+    },
+    {
+      "name": "Quiet generation events do not recurse into background requests",
+      "status": "passed"
+    },
+    {
+      "name": "Completed replies settle once and stopped generation never auto-settles",
+      "status": "passed"
+    },
+    {
+      "name": "Disabled, excluded and manual modes suppress automatic work",
+      "status": "passed"
+    },
+    {
+      "name": "Concurrent metadata actions are refused while a save is pending",
+      "status": "passed"
+    },
+    {
+      "name": "Built-ins cannot be overwritten; custom presets are cloned into global settings",
+      "status": "passed"
+    },
+    {
+      "name": "Invalid preset edits leave the saved library unchanged",
+      "status": "passed"
+    },
+    {
+      "name": "Legacy migration copies matching current state while preserving old storage bytes",
+      "status": "passed"
+    },
+    {
+      "name": "Legacy migration refuses mismatched branches without creating state or presets",
+      "status": "passed"
+    },
+    {
+      "name": "Archive import rejects foreign chats and conflicting preset IDs",
+      "status": "passed"
+    },
+    {
+      "name": "A valid chat archive restores state and its custom preset without changing other metadata",
+      "status": "passed"
+    },
+    {
+      "name": "Chat switches during file reading prevent archive import into the new chat",
+      "status": "passed"
+    },
+    {
+      "name": "Destroy removes all event subscriptions and clears the owned prompt",
+      "status": "passed"
+    },
+    {
+      "name": "API routing protects credential fields and safely encodes custom headers",
+      "status": "passed"
+    },
+    {
+      "name": "Secondary transport uses the host proxy and rejects truncated output",
+      "status": "passed"
+    },
+    {
+      "name": "SSE preserves Unicode content and stops at DONE",
+      "status": "passed"
+    },
+    {
+      "name": "SSE truncation and upstream errors reject",
+      "status": "passed"
+    },
+    {
+      "name": "Secondary request cancellation reaches the network signal",
+      "status": "passed"
+    },
+    {
+      "name": "Main transport uses only explicit messages without overriding the configured API",
+      "status": "passed"
+    }
+  ]
+}

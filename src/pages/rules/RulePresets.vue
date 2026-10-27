@@ -1,100 +1,65 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { runEngine } from '@/state/engine';
-interface Preset { id:string; label:string; builtin:boolean; rules:any }
-const props=defineProps<{ profileKey:string; rules:any; disabled?:boolean; exportText:(name:string)=>Promise<string> }>();
-const emit=defineEmits<{ (event:'load',value:{name:string;rules:any}):void; (event:'save-library',name:string):void }>();
-const presets=ref<Preset[]>([]), selected=ref('modern'), name=ref(''), busy=ref(false), error=ref(''), confirmDelete=ref(false);
-const text=ref(''), textArea=ref<HTMLTextAreaElement|null>(null), notice=ref('');
-const chosen=computed(()=>presets.value.find(item=>item.id===selected.value));
-let alive=true, epoch=0;
-async function refresh() {
- const key=props.profileKey, request=++epoch;busy.value=true;error.value='';confirmDelete.value=false;
- try {
-  const result=await runEngine('listRulePresets');
-  if(!alive||request!==epoch||key!==props.profileKey)return;
-  if(!Array.isArray(result)||result.some(item=>typeof item.id!=='string'||typeof item.label!=='string'||!item.rules))throw Error('预设列表格式不正确。');
-  presets.value=result;
-  if(!result.some(item=>item.id===selected.value))selected.value=result.find(item=>item.label===props.rules?.presetName)?.id||result[0]?.id||'';
- }catch(cause){if(alive&&request===epoch)error.value=cause instanceof Error?cause.message:String(cause)}
- finally{if(alive&&request===epoch)busy.value=false}
+import { computed, ref, watch } from 'vue';
+import Collapsible from '@/components/Collapsible.vue';
+import { engineView as view, runEngine } from '@/state/engine';
+import { convertLegacyPreset, exportPreset, importPreset, validatePreset, type StatusPreset } from '@/core/parser';
+import { BUILTIN_PRESETS } from '@/presets/builtin';
+const selected = ref('universal'), name = ref(''), template = ref(''), instruction = ref(''), transfer = ref(''), dirty = ref(false), allowLegacy = ref(false), error = ref(''), notice = ref('');
+const transferBox = ref<HTMLTextAreaElement | null>(null);
+const newId = () => 'user-' + (crypto.randomUUID?.() ?? Date.now().toString(36) + Math.random().toString(36).slice(2));
+function draft(preset: StatusPreset) { selected.value = preset.id; name.value = preset.name; template.value = preset.template; instruction.value = preset.instruction; dirty.value = false; error.value = ''; }
+function load(id: string) { const preset = view.value.presets?.find((item: StatusPreset) => item.id === id); if (preset) draft(preset); }
+watch(() => [view.value.profileKey, view.value.chatId], () => { load(view.value.presetId || 'universal'); transfer.value = ''; notice.value = ''; allowLegacy.value = false; }, { immediate: true });
+const builtin = computed(() => BUILTIN_PRESETS.some(item => item.id === selected.value));
+function current(id = selected.value): StatusPreset { return validatePreset({ id, name: name.value, template: template.value, instruction: instruction.value }); }
+async function save(apply = false) {
+  error.value = ''; notice.value = '';
+  try {
+    let id = selected.value;
+    if (dirty.value || !view.value.presets.some((item: StatusPreset) => item.id === id)) {
+      id = builtin.value ? newId() : id;
+      const saved = await runEngine('savePreset', current(id)); draft(saved);
+    }
+    if (apply) { await runEngine('selectPreset', id); notice.value = '已应用到当前聊天，等待生成新状态；旧快照仍在历史中。'; }
+    else notice.value = '预设已保存。';
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); }
 }
-function load() {
- if(props.disabled||busy.value||!chosen.value)return;
- error.value='';
- emit('load',{name:chosen.value.label,rules:JSON.parse(JSON.stringify(chosen.value.rules))});
-}
-async function importText() {
- if(props.disabled||busy.value)return;
- const key=props.profileKey,request=++epoch;busy.value=true;error.value='';notice.value='';
- try {
-  const result=await runEngine('parseRulePreset',text.value,key);
-  if(!alive||request!==epoch||key!==props.profileKey)return;
-  if(!result?.rules?.fieldSchema||typeof result.name!=='string')throw Error('预设文本缺少名称或字段定义。');
-  emit('load',result);name.value=result.name;
- }catch(cause){if(alive&&request===epoch)error.value=cause instanceof Error?cause.message:String(cause)}
- finally{if(alive&&request===epoch)busy.value=false}
-}
-async function exportText() {
- if(props.disabled||busy.value)return;
- const key=props.profileKey,request=++epoch;busy.value=true;error.value='';notice.value='';
- try {
-  const result=await props.exportText(name.value);
-  if(!alive||request!==epoch||key!==props.profileKey)return;
-  text.value=result;notice.value='已生成变量预设文本，可复制或编辑后重新导入。';
- }catch(cause){if(alive&&request===epoch)error.value=cause instanceof Error?cause.message:String(cause)}
- finally{if(alive&&request===epoch)busy.value=false}
+async function saveCopy() { try { draft(await runEngine('savePreset', current(newId()))); notice.value = '已另存为自建预设。'; } catch (cause) { error.value = String(cause); } }
+async function remove() { try { await runEngine('deletePreset', selected.value); load('universal'); } catch (cause) { error.value = String(cause); } }
+function exportText() { try { transfer.value = exportPreset(current()); notice.value = '预设文本已生成，可直接复制。'; error.value = ''; } catch (cause) { error.value = String(cause); } }
+function importText(legacy = false) {
+  error.value = '';
+  try {
+    if (legacy && !allowLegacy.value) throw Error('请先确认旧字段权限与程序结算不迁入。');
+    const preset = legacy ? convertLegacyPreset(transfer.value, newId()) : importPreset(transfer.value, newId());
+    draft(preset); dirty.value = true;
+    notice.value = legacy ? '旧字段已转换为模板草稿。请检查更新指令；旧字段权限、显示筛选、初值方案和程序结算未迁入。' : '已载入预设草稿，保存或应用后才生效。';
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); }
 }
 async function copyText() {
- const key=props.profileKey,request=epoch;notice.value='';error.value='';
- try {
-  if(!navigator.clipboard?.writeText)throw Error('clipboard unavailable');
-  await navigator.clipboard.writeText(text.value);
-  if(alive&&key===props.profileKey&&request===epoch)notice.value='已复制变量预设文本。';
- }catch{
-  if(!alive||key!==props.profileKey||request!==epoch)return;
-  textArea.value?.focus();textArea.value?.select();notice.value='浏览器未允许复制，文本已选中，请按 Ctrl+C 或长按复制。';
- }
+  try { await navigator.clipboard.writeText(transfer.value); notice.value = '已复制预设文本。'; }
+  catch { transferBox.value?.focus(); transferBox.value?.select(); notice.value = '已选中文本，请手动复制。'; }
 }
-async function remove() {
- if(props.disabled||busy.value||!chosen.value||chosen.value.builtin||!confirmDelete.value)return;
- const key=props.profileKey,request=++epoch;busy.value=true;error.value='';
- try {
-  await runEngine('deleteRulePreset',chosen.value.id,key);
-  if(!alive||request!==epoch||key!==props.profileKey)return;
-  selected.value='modern';await refresh();
- }catch(cause){if(alive&&request===epoch)error.value=cause instanceof Error?cause.message:String(cause)}
- finally{if(alive&&request===epoch)busy.value=false}
-}
-watch(()=>props.profileKey,()=>{presets.value=[];selected.value='';text.value='';notice.value='';name.value=props.rules?.presetName||'自建预设';void refresh()},{immediate:true});
-watch(()=>props.rules?.presetName,value=>{if(typeof value==='string'&&value)name.value=value});
-watch(selected,()=>{confirmDelete.value=false});
-onBeforeUnmount(()=>{alive=false;epoch++});
-defineExpose({refresh});
 </script>
-
 <template>
- <section class="libei-presets" data-rule-presets aria-label="变量预设" :aria-busy="busy">
-  <div class="libei-preset-head"><h3>变量预设</h3><span>当前草稿：{{ rules?.presetName || '未命名' }}</span></div>
-  <p>预设包含字段、字段更新规则和多套初值方案。载入后默认无初值，可选择一套方案；保存前均为草稿，其他配置和旧快照保留。</p>
-  <label>选择预设<select v-model="selected" class="bbs-input" data-preset-select :disabled="disabled||busy"><option v-for="preset in presets" :key="preset.id" :value="preset.id">{{ preset.label }}{{ preset.builtin ? ' · 内置' : ' · 自建' }}</option></select></label>
-  <div class="libei-preset-actions">
-   <button class="bbs-btn" type="button" data-action="load-rule-preset" :disabled="disabled||busy||!chosen" @click="load">载入预设草稿</button>
-   <button class="bbs-btn" type="button" data-action="export-rule-preset" :disabled="disabled||busy" @click="exportText">生成导出文本</button>
+  <div class="preset-editor">
+    <p class="hint">选一份模板，写清怎么更新即可。预设库全局共用；当前预设和状态按聊天保存。</p>
+    <label>载入预设<select class="bbs-input" aria-label="载入预设" :value="selected" @change="load(($event.target as HTMLSelectElement).value)"><option v-for="preset in view.presets" :key="preset.id" :value="preset.id">{{ preset.name }}</option></select></label>
+    <label>名称<input v-model="name" class="bbs-input" aria-label="预设名称" maxlength="80" @input="dirty = true" /></label>
+    <label>状态示例（JSON / YAML）<textarea v-model="template" class="bbs-input code" aria-label="状态模板" rows="12" spellcheck="false" @input="dirty = true" /></label>
+    <label>简短更新指令<textarea v-model="instruction" class="bbs-input" aria-label="更新指令" rows="4" @input="dirty = true" /></label>
+    <div class="actions"><button class="bbs-btn bbs-btn-primary" type="button" :disabled="view.busy || view.generating || !view.profileKey" @click="save(true)">保存并应用到当前聊天</button><button class="bbs-btn" type="button" :disabled="view.busy || view.generating" @click="saveCopy">另存为预设</button><button v-if="!builtin" class="bbs-btn" type="button" :disabled="view.busy || view.generating" @click="remove">删除自建预设</button></div>
+    <p v-if="error" role="alert" class="error">{{ error }}</p><p v-if="notice" class="hint" role="status">{{ notice }}</p>
+    <Collapsible title="复制与粘贴预设" :open="false">
+      <div class="actions"><button class="bbs-btn" type="button" @click="exportText">生成导出文本</button><button class="bbs-btn" type="button" :disabled="!transfer" @click="copyText">复制文本</button><button class="bbs-btn" type="button" @click="importText(false)">解析导入草稿</button></div>
+      <textarea ref="transferBox" v-model="transfer" class="bbs-input code" aria-label="预设导入导出文本" rows="10" spellcheck="false" />
+      <p class="hint">格式含“名称”“模板”“更新指令”，不携带 API、密钥、聊天记录或状态历史。</p>
+      <label class="legacy"><input v-model="allowLegacy" type="checkbox" class="bbs-checkbox" />转换旧版完整字段时，只保留默认值与文字规则；旧字段权限和程序结算不迁入。</label>
+      <button class="bbs-btn" type="button" :disabled="!allowLegacy" @click="importText(true)">转换旧版完整字段草稿</button>
+    </Collapsible>
+    <Collapsible title="当前提示词预览" :open="false"><pre class="preview">{{ view.injection || '当前没有注入提示词。' }}</pre></Collapsible>
   </div>
-  <slot name="initials" />
-  <label>预设文本<textarea ref="textArea" v-model="text" class="bbs-input libei-preset-text" data-preset-text :disabled="disabled||busy" spellcheck="false" placeholder="点击“生成导出文本”，或在这里粘贴同格式的变量预设。" /></label>
-  <div class="libei-preset-actions"><button class="bbs-btn" type="button" data-action="copy-rule-preset" :disabled="disabled||busy||!text" @click="copyText">复制文本</button><button class="bbs-btn" type="button" data-action="import-rule-preset" :disabled="disabled||busy||!text.trim()" @click="importText">解析导入草稿</button></div>
-  <p>按原有完整字段结构填写 YAML：“名称”“字段”为必填，“初值方案”可省略。不要求固定首行，也不强制保留日期、时间字段。可先导出作模板；粘贴后点击解析，格式有误时保留文本与原草稿。</p>
-  <p v-if="notice" role="status">{{ notice }}</p>
-  <div class="libei-preset-save"><label>另存名称<input v-model="name" class="bbs-input" data-preset-name maxlength="80" :disabled="disabled||busy" placeholder="例如：都市日常" /></label><button class="bbs-btn" type="button" data-action="save-rule-preset" :disabled="disabled||busy||!name.trim()" @click="emit('save-library',name)">另存为预设</button></div>
-  <p>另存、导出包含字段与初值方案，不包含当前选择、全局提示词、世界书引用、计算参数、聊天进度或 API 配置。另存只保存副本，不应用到聊天。</p>
-  <template v-if="chosen && !chosen.builtin"><button v-if="!confirmDelete" class="bbs-btn" type="button" :disabled="disabled||busy" @click="confirmDelete=true">删除所选自建预设</button><div v-else class="libei-preset-actions"><span>删除「{{ chosen.label }}」？当前角色配置和聊天不受影响。</span><button class="bbs-btn" type="button" data-action="confirm-delete-preset" :disabled="disabled||busy" @click="remove">确认删除预设</button><button class="bbs-btn" type="button" @click="confirmDelete=false">取消</button></div></template>
-  <p v-if="error" class="libei-preset-error" role="alert">{{ error }} <button class="bbs-btn" type="button" :disabled="busy" @click="refresh">重新读取预设</button></p>
- </section>
 </template>
-
 <style scoped>
-.libei-presets textarea.libei-preset-text{min-height:240px;resize:vertical;white-space:pre;font-family:monospace;line-height:1.6}
-.libei-presets{display:grid;gap:12px;padding:16px;border:1px solid var(--bbs-line);border-radius:var(--bbs-radius);min-width:0;background:var(--bbs-surface)}.libei-preset-head{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}.libei-presets h3{font-size:15px;margin:0}.libei-presets p,.libei-preset-head span{font-size:12px;color:var(--bbs-ink-soft);line-height:1.7;margin:0;overflow-wrap:anywhere}.libei-presets label{display:grid;gap:6px;font-size:13px;min-width:0}.libei-preset-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:12px}.libei-preset-save{display:flex;align-items:end;flex-wrap:wrap;gap:8px}.libei-preset-save label{flex:1 1 180px}.libei-presets .bbs-input{min-width:0;width:100%;max-width:100%;min-height:44px}.libei-presets .bbs-btn{min-height:44px;white-space:normal;overflow-wrap:anywhere}.libei-presets :is(input,select,button):focus-visible{outline:2px solid var(--bbs-ink-soft);outline-offset:2px}.libei-presets .libei-preset-error{color:var(--bbs-danger)}@media(max-width:400px){.libei-presets{padding:12px}.libei-presets .bbs-input{font-size:16px}}
+.preset-editor{display:grid;gap:14px}.preset-editor>label{display:grid;gap:6px;font-size:13px}.code{font-family:var(--bbs-font-mono);font-size:12px;line-height:1.7;resize:vertical;width:100%}.actions{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.hint,.legacy{font-size:12px;color:var(--bbs-ink-soft);line-height:1.8;margin:0}.legacy{display:flex;gap:8px;align-items:start;margin:12px 0}.error{font-size:13px;color:var(--bbs-danger);white-space:pre-wrap}.preview{font-size:12px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto}
 </style>

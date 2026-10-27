@@ -25,3 +25,7 @@ isolated-browser-*/
 /browser_test_report.json
 /unit_test_report.json
 .pnpm-store/
+node_modules.orig/
+
+# Local pre-refactor snapshots
+_backups/

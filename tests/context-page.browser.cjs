@@ -17,7 +17,7 @@ const checks=[];
   await wait('__libeiV2App.api.snapshot().writerReady');
   await E("__previewContext.characters[0]={name:'上下文回归',avatar:'context-ui.png'};__previewContext.name2='上下文回归';__chatId='context-chat';__previewContext.chat=[{is_user:false,is_system:false,mes:'开场',swipe_id:0}];__emit('CHAT_CHANGED')");
   await wait("__libeiV2App.api.snapshot().profileKey==='context-ui.png'");
-  await E("(()=>{const rules=__libeiV2App.api.snapshot().rules;rules.initialChoice='generic';__libeiV2App.api.saveRules(rules,'context-ui.png')})()");
+  await E("(()=>{const rules=__libeiV2App.api.snapshot().rules;Object.assign(rules,__libeiV2App.api.listRulePresets().find(p=>p.id==='libei').rules);rules.initials=[rules.initials.find(p=>p.id==='generic')||rules.initials[0]];rules.initialChoice=rules.initials[0].id;__libeiV2App.api.commitRulePreset(__libeiV2App.api.previewRulePreset(rules).planId);__libeiV2App.api.saveRules(rules,'context-ui.png')})()");
   await open('rules');
   const original=(await snap()).rules;
   await check('Four navigation pages separate context from variables and keep protagonist name above presets',async()=>{

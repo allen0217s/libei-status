@@ -104,7 +104,7 @@ const windowStyle = computed(() => {
              嵌套 Transition 在父子 v-if 同时翻转时,子的 leave 不会触发(实测窗口直接随父被移除,
              无任何动画)。改由遮罩 Transition 的 class 作后代选择器驱动窗口的进出场动画
              (见 <style> 里 .bbs-fade-enter-from/.bbs-fade-leave-to 下的 .bbs-window)。 -->
-        <div class="bbs-window" :style="windowStyle" role="dialog" aria-modal="true" aria-label="男主状态">
+        <div class="bbs-window" :style="windowStyle" role="dialog" aria-modal="true" aria-label="通用状态">
             <!-- 移动端抓手:可下滑关闭 -->
             <div
               v-if="navPlacement !== 'top' || narrowFlag"
@@ -119,7 +119,7 @@ const windowStyle = computed(() => {
 
             <!-- 题首 -->
             <header class="bbs-head">
-              <span class="bbs-brand-name">男主状态</span>
+              <span class="bbs-brand-name">通用状态</span>
               <div class="bbs-head-actions">
                 <button class="bbs-icon-btn" type="button" :title="`切换主题:${nextTheme.label}`" @click="cycleTheme">
                   <Icon :name="nextTheme.icon" />
@@ -134,7 +134,7 @@ const windowStyle = computed(() => {
 
             <main class="bbs-body">
               <Transition name="bbs-page" mode="out-in">
-                <KeepAlive include="RuleEditor"><component :is="current.component" :key="current.id === 'rules' || current.id === 'context' ? 'rules-editor' : current.id" /></KeepAlive>
+                <KeepAlive include="RuleEditor"><component :is="current.component" :key="current.id" /></KeepAlive>
               </Transition>
             </main>
 

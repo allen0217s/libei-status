@@ -31,7 +31,7 @@ THE SOFTWARE.
 ## yaml 2.9.1
 
 ```text
-Embedded yaml@2.9.1 (ISC)
+yaml@2.9.1 (ISC), bundled via the package dependency
 Copyright Eemeli Aro <eemeli@gmail.com>
 
 Permission to use, copy, modify, and/or distribute this software for any purpose
@@ -46,3 +46,9 @@ OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
 TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
+
+## AlbusKen/shujuku 输出模式参考（2.x 历史）
+
+参考提交 0d9cc1a50417398f1e96834b6a3be684f94839f2 的可读表格构造、最新数据标签与表格默认深度，已针对本插件状态字段适配。用户声明已取得作者授权，详见 docs/STORY_OUTPUT_REFERENCE.md。没有复制其打包文件或远程执行模块。
+
+3.x 通用引擎已替换 2.x 的表格输出与字段筛选流程；上述来源说明继续作为历史记录保留。

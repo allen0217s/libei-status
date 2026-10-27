@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-27",
+  "version": "3.0.0-preview.1",
+  "unitPassed": 57,
+  "browserPassed": 25,
+  "legacyTestFilesPreserved": 19,
+  "typecheck": "passed",
+  "build": "passed",
+  "scopeCheck": {
+    "files": 60,
+    "knownLineChurn": 30288,
+    "warnings": 0,
+    "note": "Includes pre-existing changes and generated bundles"
+  },
+  "sourceBytes": {
+    "before": 589464,
+    "after": 218664,
+    "reductionPercent": 62.9
+  },
+  "bundles": {
+    "index.js": {
+      "beforeBytes": 656180,
+      "afterBytes": 418420,
+      "reductionPercent": 36.23,
+      "sha256": "713e1432e271a75da5a4a4513b603d9d0b4e4970a7fa1183a6df06c81a0c084d"
+    },
+    "index.css": {
+      "beforeBytes": 57458,
+      "afterBytes": 38087,
+      "reductionPercent": 33.71,
+      "sha256": "58fe3a7a392dae8dfb639c9958cfa7d865d11122b2fafbbe2595d84454da8e84"
+    }
+  },
+  "realHostAcceptance": "pending",
+  "backup": "_backups\\universal-status-20261027-172424"
+}

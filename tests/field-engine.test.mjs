@@ -140,10 +140,11 @@ test('Declared projections omit inactive values while preserving them in physica
   assert.ok(!messages[1].content.includes('DISABLED_VALUE'));assert.ok(!messages[1].content.includes('customSecret'));
   const story=C.storyPrompt(rules,state,true,'测试角色');assert.ok(!story.includes('DISABLED_VALUE'));assert.equal(state.customSecret,'retained only');
 });
-test('Field labels and rules appear in the shared update and story projections', () => {
-  const rules=clone(generic), field=fieldAt(rules,['主角','想法']);field.label='当前念头';field.rule='不得把计划记为事实';
+test('Maintenance rules stay in updates and explicit narrative rules reach the story', () => {
+  const rules=clone(generic), field=fieldAt(rules,['主角','想法']);field.label='当前念头';field.rule='不得把计划记为事实';field.storyRule='不要替玩家决定尚未采取的行动。';
   assert.ok(C.buildMessages(rules,base(),[],0)[0].content.includes('当前念头'));
-  assert.ok(C.storyPrompt(rules,base(),false).includes('不得把计划记为事实'));
+  assert.ok(!C.storyPrompt(rules,base(),false).includes('不得把计划记为事实'));
+  assert.ok(C.storyPrompt(rules,base(),false).includes('不要替玩家决定尚未采取的行动。'));
 });
 test('Schema timeline nodes validate with their own version, not the latest role configuration', () => {
   const mem=storage(), timeline=T(C,mem,'schema-test'), rules={...clone(generic),initialChoice:'generic'};

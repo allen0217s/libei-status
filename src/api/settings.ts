@@ -1,5 +1,6 @@
 import { reactive, ref, watch } from 'vue';
 import { getContext } from '@/st/context';
+import { validatePreset, type StatusPreset } from '../core/parser';
 
 /** 本地集成自柏宝书的渠道协议；存储完全独立，不读取其设置或共享渠道。 */
 export interface ApiChannel {
@@ -13,14 +14,12 @@ export interface UiPrefs {
   showTopBar: boolean; showQuickReply: boolean; showFloorPanel: boolean;
   showOrb: boolean; orbImage: string; orbShape: string; orbOpacity: number; orbSize: number;
 }
-export interface Exclusions {
-  excludedChars: string[];
-  excludedWorldNames: string[];
-  excludedWorldInfoPatterns: string[];
-  renderWorldInfoTemplates: boolean;
-}
+export interface Exclusions { excludedChars: string[] }
+export interface GenerationOptions { mode: 'inline' | 'background'; automatic: boolean; contextMessages: number; depth: number }
 export interface ApiSettings {
   enabled: boolean;
+  presets: StatusPreset[];
+  generation: GenerationOptions;
   ui: UiPrefs;
   channels: ApiChannel[];
   assignments: Record<TaskType, string>;
@@ -44,19 +43,14 @@ export function newChannel(): ApiChannel {
 }
 function defaults(): ApiSettings {
   return {
-    enabled: true,
+    enabled: true, presets: [], generation: { mode: 'inline', automatic: true, contextMessages: 3, depth: 0 },
     ui: {
       theme: 'day', navPosition: 'auto', navTapClose: true, showTopBar: false,
-      showQuickReply: false, showFloorPanel: false, showOrb: false,
+      showQuickReply: false, showFloorPanel: false, showOrb: true,
       orbImage: '', orbShape: 'bookmark', orbOpacity: 62, orbSize: 48,
     },
     channels: [], assignments: { summary: '', resummary: '' }, legacyMigrationResolved: false,
-    exclusions: {
-      excludedChars: [], excludedWorldNames: [],
-      excludedWorldInfoPatterns: ['\\[mvu[\\s\\S]*?\\]'],
-      // 世界书模板可能执行代码，必须由用户主动开启。
-      renderWorldInfoTemplates: false,
-    },
+    exclusions: { excludedChars: [] },
   };
 }
 function strings(v: unknown): string[] {
@@ -115,12 +109,17 @@ function normalize(raw: unknown): ApiSettings {
     d.assignments[task] = typeof id === 'string' ? id : '';
   }
   d.legacyMigrationResolved = r.legacyMigrationResolved === true;
-  const e = r.exclusions;
-  if (e && typeof e === 'object') {
-    d.exclusions.excludedChars = strings(e.excludedChars);
-    d.exclusions.excludedWorldNames = strings(e.excludedWorldNames);
-    if (Array.isArray(e.excludedWorldInfoPatterns)) d.exclusions.excludedWorldInfoPatterns = strings(e.excludedWorldInfoPatterns);
-    d.exclusions.renderWorldInfoTemplates = e.renderWorldInfoTemplates === true;
+  if (r.exclusions && typeof r.exclusions === 'object') d.exclusions.excludedChars = strings(r.exclusions.excludedChars);
+  if (Array.isArray(r.presets)) {
+    d.presets = r.presets.map(validatePreset);
+    if (d.presets.length > 50 || new Set(d.presets.map(p => p.id)).size !== d.presets.length || d.presets.some(p => ['universal','romance','rpg','cultivation'].includes(p.id))) throw Error('自建预设数量、ID 或内置预设冲突。');
+  }
+  const g = r.generation;
+  if (g && typeof g === 'object') {
+    d.generation.mode = g.mode === 'background' ? 'background' : 'inline';
+    d.generation.automatic = typeof g.automatic === 'boolean' ? g.automatic : true;
+    d.generation.contextMessages = Number.isInteger(g.contextMessages) && g.contextMessages >= 1 && g.contextMessages <= 30 ? g.contextMessages : 3;
+    d.generation.depth = Number.isInteger(g.depth) && g.depth >= 0 && g.depth <= 10 ? g.depth : 0;
   }
   return d;
 }

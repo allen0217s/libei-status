@@ -1,7 +1,7 @@
 <script setup lang="ts">
 defineProps<{ value: any; depth?: number }>();
 const isObject = (value: unknown) => value !== null && typeof value === 'object';
-const label = (name: string) => name === '精液' ? '元精' : name === '精液算式' ? '元精算式' : name;
+const label = (name: string) => name;
 </script>
 <template>
   <dl class="libei-tree" :class="{ 'is-root': !depth }">
