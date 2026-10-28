@@ -52,3 +52,7 @@ THIS SOFTWARE.
 参考提交 0d9cc1a50417398f1e96834b6a3be684f94839f2 的可读表格构造、最新数据标签与表格默认深度，已针对本插件状态字段适配。用户声明已取得作者授权，详见 docs/STORY_OUTPUT_REFERENCE.md。没有复制其打包文件或远程执行模块。
 
 3.x 通用引擎已替换 2.x 的表格输出与字段筛选流程；上述来源说明继续作为历史记录保留。
+
+## MVU 格式参考（3.1）
+
+JSONPatch 与 stat_data 格式核对自 MagicalAstrogy/MagVarUpdate 固定提交 d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc。通用引擎使用独立实现，没有引入该项目的运行时脚本；完整依据和兼容子集见 docs/UNIVERSAL_ENGINE.md。

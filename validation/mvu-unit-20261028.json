@@ -1,0 +1,262 @@
+{
+  "date": "2026-10-28",
+  "kind": "isolated-unit",
+  "realNetwork": false,
+  "mvuSource": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+  "passed": 63,
+  "failed": 0,
+  "results": [
+    {
+      "name": "Safe JSON and YAML retain scalar values and nested arrays",
+      "status": "passed"
+    },
+    {
+      "name": "InitVar body, stat_data wrapper and InitVar tags yield the same state",
+      "status": "passed"
+    },
+    {
+      "name": "YAML aliases, anchors, tags, duplicate keys and multiple documents reject",
+      "status": "passed"
+    },
+    {
+      "name": "Prototype paths, nonfinite values, root arrays and non-JSON data reject",
+      "status": "passed"
+    },
+    {
+      "name": "Getters never execute and cyclic, oversized or too deeply nested state rejects",
+      "status": "passed"
+    },
+    {
+      "name": "MVU UpdateVariable/Analysis/JSONPatch extraction preserves narrative",
+      "status": "passed"
+    },
+    {
+      "name": "Case-insensitive tags, json_patch alias, JSON fences and standalone arrays work",
+      "status": "passed"
+    },
+    {
+      "name": "Incomplete, nested, multiple and missing MVU blocks reject atomically",
+      "status": "passed"
+    },
+    {
+      "name": "Malformed JSON, YAML patches, duplicate JSON keys and unsupported operations reject",
+      "status": "passed"
+    },
+    {
+      "name": "The retired status full/delta protocol is not accepted as an MVU update",
+      "status": "passed"
+    },
+    {
+      "name": "replace keeps null values and remove deletes keys separately",
+      "status": "passed"
+    },
+    {
+      "name": "insert/add work for object fields, array indices and tail append",
+      "status": "passed"
+    },
+    {
+      "name": "delta increments and decrements finite numbers without type coercion",
+      "status": "passed"
+    },
+    {
+      "name": "move supports from/to, object fields and array indices",
+      "status": "passed"
+    },
+    {
+      "name": "JSON Pointer escaping preserves literal slash, tilde, dots and brackets",
+      "status": "passed"
+    },
+    {
+      "name": "Unsafe metadata paths, stat_data prefixes and invalid escapes reject",
+      "status": "passed"
+    },
+    {
+      "name": "Out-of-bounds arrays, absent parents and absent replace targets reject",
+      "status": "passed"
+    },
+    {
+      "name": "A late invalid operation never changes the original state or writes a partial result",
+      "status": "passed"
+    },
+    {
+      "name": "Patches and inserted values are not mutated by later operations",
+      "status": "passed"
+    },
+    {
+      "name": "Old command text is treated as data and is never executed",
+      "status": "passed"
+    },
+    {
+      "name": "Empty JSONPatch is valid and bounded to 256 operations",
+      "status": "passed"
+    },
+    {
+      "name": "Universal config copy/paste contains only stat_data and update rules",
+      "status": "passed"
+    },
+    {
+      "name": "Only one universal config exists and there are no preset-management methods",
+      "status": "passed"
+    },
+    {
+      "name": "Old preset settings are preserved as inactive backup without restoring selection",
+      "status": "passed"
+    },
+    {
+      "name": "Prompt uses MVU blocks, stat_data and literal data without macro expansion",
+      "status": "passed"
+    },
+    {
+      "name": "Saving the universal rules never resets existing state or history",
+      "status": "passed"
+    },
+    {
+      "name": "Invalid universal config leaves saved config unchanged",
+      "status": "passed"
+    },
+    {
+      "name": "Fresh chat is empty and reads never write defaults to metadata",
+      "status": "passed"
+    },
+    {
+      "name": "New state stores stat_data and preserves unrelated chat metadata",
+      "status": "passed"
+    },
+    {
+      "name": "Version 1 state from a missing preset remains readable without rewriting its bytes",
+      "status": "passed"
+    },
+    {
+      "name": "First migrated write preserves the exact v1 document in its backup key",
+      "status": "passed"
+    },
+    {
+      "name": "Failed migration save rolls back both state and newly created backup",
+      "status": "passed"
+    },
+    {
+      "name": "A previous v1 backup is never replaced by another migration write",
+      "status": "passed"
+    },
+    {
+      "name": "Changed metadata revisions and foreign chat archives reject without overwrite",
+      "status": "passed"
+    },
+    {
+      "name": "Editing, deleting and swiping earlier messages invalidates dependent snapshots",
+      "status": "passed"
+    },
+    {
+      "name": "Chat renames retain state and replacement of the chat array invalidates old scopes",
+      "status": "passed"
+    },
+    {
+      "name": "History retains the latest 80 checkpoints",
+      "status": "passed"
+    },
+    {
+      "name": "Inline MVU update makes no API call or transcript mutation",
+      "status": "passed"
+    },
+    {
+      "name": "MVU delta uses the previous floor and repeated notifications settle once",
+      "status": "passed"
+    },
+    {
+      "name": "No-change patches initialize the configured InitVar without invented values",
+      "status": "passed"
+    },
+    {
+      "name": "Bad model operations retain prior state with no partially applied checkpoint",
+      "status": "passed"
+    },
+    {
+      "name": "A new card or chat starts with no state and has the same fixed universal config",
+      "status": "passed"
+    },
+    {
+      "name": "Background requests use the current stat_data and MVU-only output instructions",
+      "status": "passed"
+    },
+    {
+      "name": "Only the explicitly selected secondary channel is used",
+      "status": "passed"
+    },
+    {
+      "name": "Missing secondary channels never fall back to the main API",
+      "status": "passed"
+    },
+    {
+      "name": "Chat switches and response edits discard delayed independent output",
+      "status": "passed"
+    },
+    {
+      "name": "Changing universal rules while a request waits discards stale output",
+      "status": "passed"
+    },
+    {
+      "name": "Cancellation waits for main transport completion and discards its result",
+      "status": "passed"
+    },
+    {
+      "name": "Quiet generation never recursively triggers an independent state request",
+      "status": "passed"
+    },
+    {
+      "name": "Completed replies settle once while stopped replies require manual review",
+      "status": "passed"
+    },
+    {
+      "name": "Disabled, excluded and manual modes prevent automatic writes and clear injection",
+      "status": "passed"
+    },
+    {
+      "name": "A second page and an environment without Web Locks remain read-only",
+      "status": "passed"
+    },
+    {
+      "name": "Concurrent state writes are refused while a metadata save is pending",
+      "status": "passed"
+    },
+    {
+      "name": "Manual stat_data wrappers never create a duplicated stat_data level",
+      "status": "passed"
+    },
+    {
+      "name": "Legacy localStorage migration retains original bytes and fixed universal rules",
+      "status": "passed"
+    },
+    {
+      "name": "Old archives restore all state but cannot restore their preset selection",
+      "status": "passed"
+    },
+    {
+      "name": "New archives restore only state without overwriting universal rules or API settings",
+      "status": "passed"
+    },
+    {
+      "name": "Chat switches during file reading prevent writes to the next chat",
+      "status": "passed"
+    },
+    {
+      "name": "Cleanup removes subscriptions and owned prompt without touching other metadata",
+      "status": "passed"
+    },
+    {
+      "name": "API routing retains protected credential fields and custom effort headers",
+      "status": "passed"
+    },
+    {
+      "name": "Truncated proxy responses reject",
+      "status": "passed"
+    },
+    {
+      "name": "SSE preserves Unicode and stops at DONE",
+      "status": "passed"
+    },
+    {
+      "name": "External cancellation reaches the secondary transport signal",
+      "status": "passed"
+    }
+  ]
+}

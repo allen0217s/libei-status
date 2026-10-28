@@ -1,13 +1,13 @@
 {
   "name": "libei-status",
-  "version": "3.0.0-preview.1",
+  "version": "3.1.0-preview.1",
   "private": true,
   "type": "module",
   "scripts": {
     "typecheck": "vue-tsc --noEmit",
     "build": "vite build && node scripts/sync-dist.cjs",
-    "test": "node tests/run-universal.mjs",
-    "test:browser": "node tests/universal.browser.cjs",
+    "test": "node tests/run-mvu.mjs",
+    "test:browser": "node tests/mvu.browser.cjs",
     "test:rules": "node tests/rules-page.browser.cjs",
     "test:fields": "node tests/field-schema.browser.cjs",
     "test:references": "node tests/rules-references.browser.cjs",

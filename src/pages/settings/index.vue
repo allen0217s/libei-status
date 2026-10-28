@@ -179,7 +179,7 @@ onBeforeUnmount(() => { editorEpoch++; clearTimeout(blurTimer); });
 
 <template>
   <section class="bbs-page">
-    <div class="bbs-page-head"><h2>设置</h2><span class="bbs-ver">通用状态 v3</span></div>
+    <div class="bbs-page-head"><h2>设置</h2><span class="bbs-ver">通用状态 v3.1</span></div>
     <hr class="bbs-rule" />
     <div class="bbs-master" :class="{ 'is-off': !apiSettings.enabled }">
       <span class="bbs-master-spine" aria-hidden="true"></span>
@@ -189,10 +189,10 @@ onBeforeUnmount(() => { editorEpoch++; clearTimeout(blurTimer); });
     <div class="bbs-sections">
       <UpdateOptions />
       <Collapsible title="存档与存储管理" :open="false">
-        <p class="bbs-field-hint">状态和预设绑定保存在当前聊天。完整存档不含 API 密钥。最近保留 80 次状态快照，旧版浏览器存档不自动删除。</p>
+        <p class="bbs-field-hint">stat_data 和状态历史保存在当前聊天。完整存档不含 API 密钥。最近保留 80 次状态快照，旧版浏览器存档不自动删除。</p>
         <p v-if="operationError || view.error" class="libei-storage-error" role="alert">{{ operationError || view.error }}</p>
         <div class="libei-storage-actions">
-          <button class="bbs-btn" type="button" :disabled="!view.state" @click="act('exportState')">导出当前状态</button>
+          <button class="bbs-btn" type="button" :disabled="!view.stat_data" @click="act('exportState')">导出当前状态</button>
           <button class="bbs-btn" type="button" :disabled="!view.profileKey" @click="act('exportTimeline')">导出完整存档</button>
           <button class="bbs-btn" type="button" :disabled="view.busy || view.generating" @click="archiveInput?.click()">导入并替换存档</button>
           <button class="bbs-btn" type="button" :disabled="view.busy || view.generating" @click="confirmPruneOpen = true">仅保留当前快照</button>
@@ -200,8 +200,8 @@ onBeforeUnmount(() => { editorEpoch++; clearTimeout(blurTimer); });
         </div>
         <input ref="archiveInput" type="file" accept=".json,application/json" hidden aria-label="导入完整状态存档" @change="importArchive" />
         <template v-if="view.legacyAvailable">
-          <p class="bbs-field-hint">检测到旧版聊天存档。迁移只复制已核对分支的当前状态；旧字段权限、程序数值结算、世界书引用和多套初值不迁入。新预设需自行补充更新指令；全部旧快照仍保留在原浏览器存储中。</p>
-          <button class="bbs-btn" type="button" :disabled="view.history?.length || view.busy || view.generating" @click="act('migrateLegacy')">复制旧版当前状态（停用旧结算）</button>
+          <p class="bbs-field-hint">检测到旧版聊天存档。迁移只复制已核对分支的当前状态；旧字段权限、程序数值结算、世界书引用和多套初值不迁入。请按需完善通用更新规则；全部旧快照仍保留在原浏览器存储中。</p>
+          <button class="bbs-btn" type="button" :disabled="view.history?.length || view.busy || view.generating" @click="act('migrateLegacy')">复制旧版当前状态到 stat_data</button>
         </template>
         <p class="bbs-field-hint libei-storage-status" role="status">{{ view.status }}</p>
       </Collapsible>

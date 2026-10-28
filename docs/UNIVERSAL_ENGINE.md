@@ -1,63 +1,50 @@
-# 通用状态引擎：实现与验收记录
+# 固定通用 MVU 引擎：实现与验证
 
-日期：2026-10-27；版本：3.0.0-preview.1。
+日期：2026-10-28；版本：3.1.0-preview.1。
 
-## 授权与范围
+## 本轮范围
 
-用户明确要求按其通用状态引擎方案简化插件，范围涵盖生成、解析、按聊天保存、模板预设与通用展示。这是有意改变配置和状态协议的功能替换。保留当前未提交改动的备份后实施；没有推送仓库、安装真实酒馆或请求真实供应商。
+用户要求“只保留通用这一种预设，不能切换预设，按照 mvu 的格式”。实现锁定为唯一通用初值和更新规则，移除预设选择/名称/另存/删除及相应 API，保留浮窗、独立面板、渠道、主题和聊天隔离。采用现代纯值 stat_data 与 UpdateVariable / JSONPatch，不引入完整 MVU 运行时或恢复世界书操作。
 
-开工先做只读核查。旧世界书模块实际上只读；旧引擎已经使用 setExtensionPrompt。实际修改依据是把预设/字段/专用结算和本地时间线合在一起的核心依赖，改为模板与聊天元数据。重构前类型检查及 153 项旧模块检查通过。
+基线：8a00920，工作区干净，上一版已记录 57 项模块及 25 项隔离浏览器通过。改动前完整备份在 _backups/single-universal-mvu-20261028-143814/。本轮只修改扩展格式、配置、存储、对应界面与回归，不改其他卡工程或全局设置；历史测试保留。
 
-- 生成/生命周期：批准替换旧适配器，由 src/core/injector.ts 负责提示词、生成模式、取消、事件和公开操作。
-- 解析：批准用 src/core/parser.ts 统一 JSON / YAML、full / delta 和纯文本预设；保留数据安全校验。
-- 存储：批准将当前数据所有权改到 chatMetadata，旧 localStorage 只提供显式只读迁移。
-- 展示：保留已有浮窗、主题和渠道界面；替换专属状态展示及逐字段编辑。
-- 删除核查：生产源码的旧模块导入、页面注册、设置操作均已替换；构建根目录 JS/CSS 通过构建脚本更新。
-- 原测试文件未删除；增加新协议回归。旧协议检查依赖 2.x 源码，只能用于对应快照，不计作当前新版验证。
+## 模块与契约
 
-本轮范围预算：仅扩展源码、构建入口/锁文件、相关文档与新回归；不改其他卡工程、全局配置、远程仓库和真实宿主。生成资源的大幅行数差异来自移除旧引擎及重新打包，不按小修补预算解释。
+- src/presets/builtin.ts：仅一个 UNIVERSAL_CONFIG，不存在数组或其他内置预设。
+- src/core/parser.ts：InitVar/stat_data 解析、MVU 标签和 JSONPatch、原子操作、固定通用配置文本。不再解析旧 full/delta 为状态更新。
+- src/core/injector.ts：唯一配置提示词、生成与生命周期，只公开 saveUniversalConfig，不公开 selectPreset / savePreset / deletePreset。配置更改保留状态。
+- src/core/storage.ts：version 2 的 stat_data 与历史，version 1 只读转换及首次写入备份；旧 presetId 不再决定活动状态或配置。
+- src/pages/rules/UniversalRules.vue：初始变量与更新规则，固定标签“通用”，页面复制粘贴；拒绝名称和预设列表。
+- src/pages/state/index.vue：固定“通用 · MVU”标签，无预设下拉框，保留状态历史和手动 stat_data 修订。
+- src/core/display.ts：显示隐藏，不修改源消息；旧格式仅在已保存匹配快照时保留只读显示兼容。
 
-备份位于 _backups/universal-status-20261027-172424/，含原 src、tests、docs、入口资源、依赖清单与开工前差异。回退时按该快照恢复到单独副本检查，避免覆盖后来新增的用户工作。
+迁移保证：旧值与快照不自动清空；旧预设定义成为 inactive legacyPresets；原聊天文档在下一次写入前复制到 libei_status_data_v1_backup，失败回滚，不覆盖已有备份。导入旧存档不能重新引入活动预设，也不覆盖通用规则或 API 设置。
 
-## 模块
+本轮范围预算：最多 50 个相关文件、25000 行已知变更（含生成资源）；任何旧测试文件删除、其他工程改动或凭据输出均不在范围内。生成的根目录 JS/CSS 只能经构建脚本更新。
 
-```text
-src/
-  core/
-    injector.ts    提示词、独立生成、生命周期和操作协调
-    parser.ts      安全数据解析、状态合并、预设文本与显示推断
-    storage.ts     聊天元数据、分支指纹与旧状态只读迁移
-    display.ts     状态块的显示隐藏与还原
-  presets/builtin.ts
-  ui/AutoRenderer.vue
-  pages/state/    当前状态、历史、手动修订
-  pages/rules/    模板预设与页面复制粘贴
-  pages/settings/生成选项、渠道、界面和存档管理
-```
+## MVU 格式依据
 
-没有为了“百行”把安全校验、请求隔离和生命周期清理压进不透明的单体。yaml 2.9.1 替代旧引擎内嵌的同版本解析器，显式列为依赖；其他依赖版本未升级。世界书、EJS、字段 Schema 和专用数值结算不再进入运行路径。
+2026-10-28 核对 MagVarUpdate 的 master 与 beta，二者当时均指向固定提交 [d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc](https://github.com/MagicalAstrogy/MagVarUpdate/tree/d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc)。
 
-## 接口依据
+| 依据 | 核对结果 |
+| --- | --- |
+| [src/variable_def.ts](https://github.com/MagicalAstrogy/MagVarUpdate/blob/d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc/src/variable_def.ts) | MvuData 使用 stat_data；本实现维护纯值对象 |
+| [src/function/update_variables.ts](https://github.com/MagicalAstrogy/MagVarUpdate/blob/d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc/src/function/update_variables.ts) | JSON Pointer 解码；replace、delta、insert/add、remove、move |
+| [tests/helpers/json_patch_suite.ts](https://github.com/MagicalAstrogy/MagVarUpdate/blob/d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc/tests/helpers/json_patch_suite.ts) | 数值 delta、数组 /-、字面点号路径等回归场景 |
+| example/理理/变量输出.yaml | status_current_variable 作为当前变量资料包装 |
+| example/理理/[mvu_update]格式强调-变量更新规则.md | UpdateVariable、Analysis 外层结构 |
 
-宿主版本未知，未连接真实酒馆。源码核对基于 SillyTavern 固定提交 [f63399a4f9c5ef0f311b305e82b8734333375ab2](https://github.com/SillyTavern/SillyTavern/tree/f63399a4f9c5ef0f311b305e82b8734333375ab2)，不能把固定源码核验当成目标安装的运行证明。
+该来源用于格式与操作语义核对，不证明目标宿主安装了 MVU。本插件不下载或执行该脚本；采用独立实现，并有意收敛为单块、严格 JSON、安全路径和整轮原子拒绝。不执行其旧脚本命令或 Schema 系统。
 
-| 符号/行为 | 所属与来源 | 当前证据 |
-| --- | --- | --- |
-| getContext、chatMetadata、extensionSettings、saveMetadata、messageFormatting、generateRaw | 宿主提供；[st-context.js](https://github.com/SillyTavern/SillyTavern/blob/f63399a4f9c5ef0f311b305e82b8734333375ab2/public/scripts/st-context.js) | 源码核对、启动能力检查及模拟回归；真实宿主待核验 |
-| setExtensionPrompt(key,value,position,depth,scan,role)、IN_CHAT=1、SYSTEM=0 | 宿主提供；[script.js](https://github.com/SillyTavern/SillyTavern/blob/f63399a4f9c5ef0f311b305e82b8734333375ab2/public/script.js) | 源码核对；不导入宿主私有模块 |
-| CHAT_CHANGED、GENERATION_*、MESSAGE_RECEIVED、CHARACTER_MESSAGE_RENDERED、编辑/删除/swipe 事件 | 宿主提供；[events.js](https://github.com/SillyTavern/SillyTavern/blob/f63399a4f9c5ef0f311b305e82b8734333375ab2/public/scripts/events.js) | 使用宿主导出的事件常量；真实流式时序待验收 |
-| messageFormatting(text,name,isSystem,isUser,id) | 同上 script.js | 仅传去掉状态块后的正文；缺少接口则保持可见 |
-| #chat .mes[mesid] .mes_text | 该源码的显示结构 | 与模拟宿主对照检查；其他主题/显示扩展仍待核验 |
-
-只有 SillyTavern 宿主和打包的 Vue/YAML 是运行依赖。Tavern Helper、MVU、CDN、数据库均不需要；开发工具仅用于本地构建和回归。
+宿主接口继续基于 SillyTavern [f63399a4f9c5ef0f311b305e82b8734333375ab2](https://github.com/SillyTavern/SillyTavern/tree/f63399a4f9c5ef0f311b305e82b8734333375ab2)：getContext、chatMetadata、saveMetadata、generateRaw、setExtensionPrompt、messageFormatting 与导出的事件常量。启动会核对能力；真实安装版本仍未观测。
 
 ## 验证与边界
 
-- 新引擎检查：validation/universal-unit-20261027.json，覆盖安全解析、合并、模板、元数据写回、失败回滚、分支匹配、聊天/配置切换、取消、重复事件、旧状态迁移和 API 传输。
-- 浏览器检查：validation/universal-browser-20261027.json，覆盖实际构建资源的面板、模板复制粘贴、只隐藏显示、主题、移动布局、重新载入和销毁。使用独立 Chromium profile、虚构聊天和模拟请求。
-- 截图：screenshots/universal-status-desktop.png、universal-presets-desktop.png、universal-status-mobile.png、universal-status-night.png；已人工视觉核对。
-- 当前验证命令为 pnpm run typecheck、pnpm test、pnpm run build、pnpm run test:browser。保留的旧命令 test:fields / test:references / test:context 等面向已移除的 2.x 交互，不适用当前协议。
-- 缺少真实宿主安装、服务端持久化、跨扩展兼容、真实流式、真实输出质量与费用证据。主 API 的取消与截断限制保持明示。
-- 保留原生 Web Locks 的单页面写入保护；并已用两个同源隔离页面验证第二页只读。锁不跨设备协调，群聊不在本轮验收范围。
+- 当前命令：pnpm run typecheck、pnpm test、pnpm run build、pnpm run test:browser。
+- 模块记录：validation/mvu-unit-20261028.json，63 项；包含 MVU 路径与六种操作、禁止原型路径、原子失败、无切换 API、旧配置备份、版本转换、取消/分支/聊天保护、存档恢复和 API 传输。
+- 浏览器记录：validation/mvu-browser-20261028.json，27 项；检查真实构建资源中的固定通用界面、MVU 解析与隐藏、备份、复制粘贴、拒绝预设列表、只读页面、重载、手机与夜间主题。
+- 浏览器用虚构聊天、模拟保存/请求及独立 profile；有两个同源页面验证原生 Web Locks，未连接真实酒馆和供应商。
+- 图片在 screenshots/mvu-status-desktop.png、mvu-rules-desktop.png、mvu-status-mobile.png、mvu-status-night.png，交付前视觉核对。
+- 真实宿主的服务端保存、流式事件次序、跨扩展影响、真实模型格式稳定性和原生 MVU 脚本联动仍待验收。
 
-TW 路由回执：sillytavern-extension-dev、code-quality-workflow；已读 ST-A0、ST-D5 与 ST-E5 的扩展边界部分；库快照 2026-08-18；没有采用设计目录候选。API 正式依据仍是上面的固定宿主源码。
+TW 回执沿用扩展开发/API 核验路由，已读 A0、D5、E5 与 B1 的 JSONPatch/纯值部分；库快照 2026-08-18。专用格式事实以上面的固定上游源码为准，未采用设计目录候选。

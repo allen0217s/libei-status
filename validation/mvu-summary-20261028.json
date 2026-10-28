@@ -1,0 +1,25 @@
+{
+  "date": "2026-10-28",
+  "version": "3.1.0-preview.1",
+  "activeProfile": "通用",
+  "presetSwitching": false,
+  "protocol": "MVU stat_data / UpdateVariable / JSONPatch",
+  "mvuSource": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+  "typecheck": "passed",
+  "build": "passed",
+  "unitPassed": 63,
+  "browserPassed": 27,
+  "oldTestFilesUnchanged": 24,
+  "backup": "_backups\\single-universal-mvu-20261028-143814",
+  "bundles": {
+    "index.js": {
+      "bytes": 417476,
+      "sha256": "2f7c3f01fdd5dfc96e972efa433151e11c3ad6469fe83eafd1206d2e680c856d"
+    },
+    "index.css": {
+      "bytes": 38111,
+      "sha256": "bfffb5e6e1cd1d81815ff4abb860985a0e4ee5b3fef3760b36cb7903d647ae2a"
+    }
+  },
+  "realHostAcceptance": "pending"
+}

@@ -1,6 +1,7 @@
 import { reactive, ref, watch } from 'vue';
 import { getContext } from '@/st/context';
-import { validatePreset, type StatusPreset } from '../core/parser';
+import { validateUniversalConfig, type UniversalConfig } from '../core/parser';
+import { UNIVERSAL_CONFIG } from '../presets/builtin';
 
 /** 本地集成自柏宝书的渠道协议；存储完全独立，不读取其设置或共享渠道。 */
 export interface ApiChannel {
@@ -18,7 +19,8 @@ export interface Exclusions { excludedChars: string[] }
 export interface GenerationOptions { mode: 'inline' | 'background'; automatic: boolean; contextMessages: number; depth: number }
 export interface ApiSettings {
   enabled: boolean;
-  presets: StatusPreset[];
+  universal: UniversalConfig;
+  legacyPresets: unknown[];
   generation: GenerationOptions;
   ui: UiPrefs;
   channels: ApiChannel[];
@@ -43,7 +45,7 @@ export function newChannel(): ApiChannel {
 }
 function defaults(): ApiSettings {
   return {
-    enabled: true, presets: [], generation: { mode: 'inline', automatic: true, contextMessages: 3, depth: 0 },
+    enabled: true, universal: { ...UNIVERSAL_CONFIG }, legacyPresets: [], generation: { mode: 'inline', automatic: true, contextMessages: 3, depth: 0 },
     ui: {
       theme: 'day', navPosition: 'auto', navTapClose: true, showTopBar: false,
       showQuickReply: false, showFloorPanel: false, showOrb: true,
@@ -87,7 +89,7 @@ export function validateChannel(channel: ApiChannel): string | null {
   const blocked = channel.excludeParams.find(p => PROTECTED_PARAMS.has(p.trim()));
   return blocked ? `不可排除固定路由/凭据字段：${blocked}` : null;
 }
-function normalize(raw: unknown): ApiSettings {
+export function normalizeSettings(raw: unknown): ApiSettings {
   const d = defaults();
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return d;
   const r = raw as Partial<ApiSettings>;
@@ -110,10 +112,9 @@ function normalize(raw: unknown): ApiSettings {
   }
   d.legacyMigrationResolved = r.legacyMigrationResolved === true;
   if (r.exclusions && typeof r.exclusions === 'object') d.exclusions.excludedChars = strings(r.exclusions.excludedChars);
-  if (Array.isArray(r.presets)) {
-    d.presets = r.presets.map(validatePreset);
-    if (d.presets.length > 50 || new Set(d.presets.map(p => p.id)).size !== d.presets.length || d.presets.some(p => ['universal','romance','rpg','cultivation'].includes(p.id))) throw Error('自建预设数量、ID 或内置预设冲突。');
-  }
+  if (r.universal !== undefined) d.universal = validateUniversalConfig(r.universal);
+  const legacy = r.legacyPresets ?? (r as { presets?: unknown[] }).presets;
+  if (Array.isArray(legacy)) d.legacyPresets = JSON.parse(JSON.stringify(legacy));
   const g = r.generation;
   if (g && typeof g === 'object') {
     d.generation.mode = g.mode === 'background' ? 'background' : 'inline';
@@ -156,7 +157,7 @@ export function hydrateSettings(): void {
   if (ready) return;
   const ctx = getContext();
   if (!ctx?.extensionSettings) return;
-  Object.assign(apiSettings, normalize(ctx.extensionSettings[SETTINGS_KEY]));
+  Object.assign(apiSettings, normalizeSettings(ctx.extensionSettings[SETTINGS_KEY]));
   detectLegacySettings();
   ready = true;
   for (const cb of readyCbs.splice(0)) {

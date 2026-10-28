@@ -12,7 +12,7 @@ async function save() { error.value = ''; try { await runEngine('saveOptions', {
   <Collapsible title="状态生成方式" :open="true">
     <div class="update-options" data-update-options>
       <label>生成模式<select v-model="draft.mode" class="bbs-input" aria-label="生成模式" @change="dirty = true"><option value="inline">随正文生成</option><option value="background">独立请求生成</option></select></label>
-      <p v-if="draft.mode === 'inline'">每次正文末尾附带状态，浮窗自动读取。与正文共用一次请求，状态部分仍占用上下文和输出 token。</p>
+      <p v-if="draft.mode === 'inline'">每次正文末尾附带 MVU UpdateVariable 更新块，浮窗自动读取。与正文共用一次请求，状态部分仍占用上下文和输出 token。</p>
       <p v-else>正文完成后额外请求一次状态；可使用当前主 API，或下方配置的副渠道。参考最近消息与旧状态，不读取世界书。</p>
       <label>自动处理新回复<input v-model="draft.automatic" type="checkbox" class="bbs-checkbox" aria-label="自动处理新回复" @change="dirty = true" /></label>
       <label v-if="draft.mode === 'background'">参考最近消息数（1–30）<input v-model.number="draft.contextMessages" type="number" class="bbs-input" min="1" max="30" aria-label="参考消息数" @input="dirty = true" /></label>

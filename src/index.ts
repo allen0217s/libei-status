@@ -27,12 +27,12 @@ async function boot() {
   const mount = document.createElement('div'); mount.style.pointerEvents = 'auto'; shadow.append(mount); document.body.append(host);
   disposers.push(() => host.remove());
   if (globals.__LIBEI_PREVIEW_STYLES__) { const style = document.createElement('style'); style.textContent = globals.__LIBEI_PREVIEW_STYLES__; shadow.prepend(style); }
-  else { const link = document.createElement('link'); link.rel = 'stylesheet'; link.href = new URL(/* @vite-ignore */ './index.css', import.meta.url).href + '?v=3.0.0-preview.1'; shadow.prepend(link); }
+  else { const link = document.createElement('link'); link.rel = 'stylesheet'; link.href = new URL(/* @vite-ignore */ './index.css', import.meta.url).href + '?v=3.1.0-preview.1'; shadow.prepend(link); }
   const app = createApp(App); app.mount(mount); disposers.push(() => app.unmount());
   disposers.push(mountEntries(), mountStatusDisplay());
-  disposers.push(watch(() => [apiSettings.enabled, apiSettings.generation, apiSettings.channels, apiSettings.assignments, apiSettings.exclusions, apiSettings.presets, migrationPending.value], () => api.invalidate(), { deep: true }));
+  disposers.push(watch(() => [apiSettings.enabled, apiSettings.generation, apiSettings.channels, apiSettings.assignments, apiSettings.exclusions, apiSettings.universal, migrationPending.value], () => api.invalidate(), { deep: true }));
   const destroy = () => { closeBook(); window.removeEventListener('pagehide', destroy); cleanup?.(); delete globals.__libeiV2App; };
-  globals.__libeiV2App = { version: '3.0.0-preview.1', open: openBook, close: closeBook, destroy, api };
+  globals.__libeiV2App = { version: '3.1.0-preview.1', open: openBook, close: closeBook, destroy, api };
   window.addEventListener('pagehide', destroy, { once: true });
   api.refresh();
   if (globals.__LIBEI_PREVIEW__) openBook('state');

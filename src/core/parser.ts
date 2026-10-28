@@ -2,11 +2,13 @@ import { isAlias, parseDocument, stringify, visit } from 'yaml';
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type State = { [key: string]: JsonValue };
-export interface StatusPreset { id: string; name: string; template: string; instruction: string }
-export interface StatusUpdate { mode: 'full' | 'delta'; state: State }
+export interface UniversalConfig { initialVariables: string; updateRules: string }
+export interface MvuOperation { op: 'replace' | 'insert' | 'add' | 'remove' | 'delta' | 'move'; path: string; value?: JsonValue; from?: string }
+export interface StatusUpdate { operations: MvuOperation[]; analysis: string }
 export const MAX_TEXT = 250_000;
 const forbidden = new Set(['__proto__', 'prototype', 'constructor']);
 export const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
+const own = (value: object, key: PropertyKey) => Object.prototype.hasOwnProperty.call(value, key);
 
 export function checkedState(value: unknown): State {
   let count = 0;
@@ -35,12 +37,9 @@ export function checkedState(value: unknown): State {
   if (text.length > MAX_TEXT) throw Error('状态数据超过 25 万字符。');
   return JSON.parse(text) as State;
 }
-
-/** JSON is also YAML; one safe parser handles both without evaluating code. */
 export function parseData(text: string): State {
   if (typeof text !== 'string' || !text.trim() || text.length > MAX_TEXT) throw Error('请输入不超过 25 万字符的 JSON / YAML。');
-  const source = text.trim().replace(/^\uFEFF/, '');
-  const doc = parseDocument(source, { schema: 'core', uniqueKeys: true, strict: true });
+  const doc = parseDocument(text.trim().replace(/^\uFEFF/, ''), { schema: 'core', uniqueKeys: true, strict: true });
   if (doc.errors.length) throw Error('JSON / YAML 格式错误：' + doc.errors[0].message);
   let count = 0;
   visit(doc, (_key, node, path) => {
@@ -50,94 +49,158 @@ export function parseData(text: string): State {
   if (doc.warnings.length) throw Error('YAML 含不支持的标签或语法。');
   return checkedState(doc.toJS({ maxAliasCount: 0 }));
 }
-
+/** Accept MVU InitVar body or its explicit stat_data wrapper, without double wrapping. */
+export function parseInitialVariables(text: string): State {
+  const init = text.trim().match(/^<initvar\s*>([\s\S]*)<\/initvar\s*>$/i);
+  const data = parseData(init ? init[1] : text);
+  if ('stat_data' in data) {
+    if (Object.keys(data).length !== 1) throw Error('stat_data 包装外不能混入其他配置；更新规则请填写在规则栏。');
+    return checkedState(data.stat_data);
+  }
+  return data;
+}
 export function extractStatus(text: string): { body: string; content: string } | null {
-  const blocks = [...text.matchAll(/<status\s*>([\s\S]*?)<\/status\s*>/gi)];
+  const blocks = [...text.matchAll(/<(UpdateVariable|VariableUpdate|update)\s*>([\s\S]*?)<\/\1\s*>/gi)];
   if (!blocks.length) {
-    if (/<\/?status\b/i.test(text)) throw Error('状态块不完整，请等待回复完成后再提取。');
+    if (/<\/?(?:UpdateVariable|VariableUpdate|update)\b/i.test(text)) throw Error('MVU 更新块不完整，请等待回复结束后再提取。');
     return null;
   }
-  if (blocks.length !== 1) throw Error('每条回复只能包含一个 <status> 状态块。');
-  const block = blocks[0];
-  const body = text.slice(0, block.index) + text.slice(block.index! + block[0].length);
-  if (/<\/?status\b/i.test(body)) throw Error('状态标签嵌套或不完整。');
-  return { body: body.trim(), content: block[1].trim() };
+  if (blocks.length !== 1) throw Error('每条回复只能包含一个 MVU 更新块。');
+  const block = blocks[0], body = text.slice(0, block.index) + text.slice(block.index! + block[0].length);
+  if (/<\/?(?:UpdateVariable|VariableUpdate|update)\b/i.test(body) || /<\/?(?:UpdateVariable|VariableUpdate|update)\b/i.test(block[2])) throw Error('MVU 更新块嵌套或不完整。');
+  return { body: body.trim(), content: block[2].trim() };
+}
+function stripFence(text: string): string {
+  const match = text.trim().match(/^\`\`\`(?:json)?\s*\n([\s\S]*?)\n\`\`\`$/i);
+  return match ? match[1].trim() : text.trim();
+}
+function pointer(path: unknown): string[] {
+  if (typeof path !== 'string' || !path || path.length > 2000) throw Error('path 必须是相对 stat_data 的非空 JSON Pointer。');
+  const normalized = path.startsWith('/') ? path : '/' + path;
+  const parts = normalized.slice(1).split('/').map(part => {
+    if (/~(?![01])/u.test(part)) throw Error('JSON Pointer 转义无效，请使用 ~0 或 ~1。');
+    return part.replace(/~1/g, '/').replace(/~0/g, '~');
+  });
+  if (parts.length > 16 || parts.some(part => !part || forbidden.has(part) || ['$internal', '$meta'].includes(part))) throw Error('不允许根路径、元数据或不安全的字段路径。');
+  if (parts[0] === 'stat_data') throw Error('path 已相对 stat_data，请去掉 /stat_data 前缀。');
+  return parts;
 }
 export function parseUpdate(text: string, requireTag = false): StatusUpdate {
+  if (typeof text !== 'string' || text.length > MAX_TEXT) throw Error('MVU 更新文本超过上限。');
   const block = extractStatus(text);
-  if (requireTag && !block) throw Error('当前回复没有 <status> 状态块；请检查生成模式或改用独立生成。');
-  let content = block?.content ?? text.trim();
-  const fence = content.match(/^\`\`\`(?:json|yaml|yml)?\s*\n([\s\S]*?)\n\`\`\`$/i);
-  if (fence) content = fence[1];
-  const data = parseData(content);
-  if ('mode' in data && 'state' in data) {
-    if (!['full', 'delta'].includes(String(data.mode)) || Object.keys(data).some(key => !['mode', 'state'].includes(key))) throw Error('状态协议只接受 mode: full / delta 和 state。');
-    return { mode: data.mode as 'full' | 'delta', state: checkedState(data.state) };
-  }
-  return { mode: 'full', state: data };
+  if (requireTag && !block) throw Error('当前回复没有 <UpdateVariable> 更新块。');
+  let source = block?.content ?? text.trim(), analysis = '';
+  const analyses = [...source.matchAll(/<analysis\s*>([\s\S]*?)<\/analysis\s*>/gi)];
+  if (analyses.length > 1) throw Error('Analysis 段重复。');
+  if (analyses.length) { analysis = analyses[0][1].trim(); source = source.replace(analyses[0][0], '').trim(); }
+  const patches = [...source.matchAll(/<(json_?patch)\s*>([\s\S]*?)<\/\1\s*>/gi)];
+  if (patches.length > 1) throw Error('每个更新块只能包含一个 JSONPatch 数组。');
+  if (patches.length) {
+    if (source.replace(patches[0][0], '').trim()) throw Error('JSONPatch 外包含无法识别的内容。');
+    source = patches[0][2];
+  } else if (block) throw Error('MVU 更新块缺少 <JSONPatch>。');
+  source = stripFence(source);
+  let raw: unknown;
+  try { raw = JSON.parse(source); } catch { throw Error('JSONPatch 必须是合法的 JSON 数组。'); }
+  if (!Array.isArray(raw) || raw.length > 256) throw Error('JSONPatch 必须是最多 256 项的数组。');
+  // Check duplicate JSON keys as well as the JSON-only value contract.
+  const safe = parseData('{"operations":' + source + '}').operations as JsonValue[];
+  const operations = safe.map((item, index) => {
+    try {
+      if (!object(item) || !['replace', 'insert', 'add', 'remove', 'delta', 'move'].includes(String(item.op))) throw Error('支持 replace / insert / add / remove / delta / move。');
+      const path = item.path ?? (item.op === 'move' ? item.to : undefined);
+      pointer(path);
+      const allowed = item.op === 'move' ? ['op', 'path', 'from', 'to'] : item.op === 'remove' ? ['op', 'path'] : ['op', 'path', 'value'];
+      if (Object.keys(item).some(key => !allowed.includes(key))) throw Error('操作含多余字段。');
+      if (item.op === 'move') { pointer(item.from); if (item.path !== undefined && item.to !== undefined && item.path !== item.to) throw Error('move 的 path 与 to 不一致。'); }
+      else if (item.op !== 'remove' && !own(item, 'value')) throw Error('操作缺少 value。');
+      if (item.op === 'delta' && (typeof item.value !== 'number' || !Number.isFinite(item.value))) throw Error('delta 的 value 必须是有限数字。');
+      return { op: item.op, path, ...(item.op === 'move' ? { from: item.from } : item.op === 'remove' ? {} : { value: item.value }) } as MvuOperation;
+    } catch (cause) { throw Error('第 ' + (index + 1) + ' 条操作：' + (cause instanceof Error ? cause.message : String(cause))); }
+  });
+  return { operations, analysis };
 }
-/** JSON Merge Patch semantics: objects merge, arrays replace, null deletes. */
+/** Atomic MVU JSONPatch subset; never executes legacy _.set commands or model code. */
 export function applyUpdate(base: State | null, update: StatusUpdate): State {
-  if (update.mode === 'full') return checkedState(update.state);
-  if (!base) throw Error('没有旧状态，首次必须输出 full 全量状态。');
-  function merge(target: Record<string, unknown>, patch: Record<string, unknown>): State {
-    const result = { ...target };
-    for (const [key, value] of Object.entries(patch)) {
-      if (forbidden.has(key)) throw Error('增量含不安全的键名。');
-      if (value === null) delete result[key];
-      else result[key] = object(value) ? merge(object(result[key]) ? result[key] : {}, value) : value;
+  if (!base) throw Error('请先提供 MVU 初始变量。');
+  const state = checkedState(base);
+  type Container = State | JsonValue[];
+  function locate(parts: string[]): { parent: Container; key: string } {
+    let current: JsonValue = state;
+    for (const part of parts.slice(0, -1)) {
+      if (Array.isArray(current)) {
+        if (!/^(0|[1-9]\d*)$/.test(part) || Number(part) >= current.length) throw Error('父级数组下标不存在。');
+      } else if (!object(current) || !own(current, part)) throw Error('父级字段不存在，请先 insert 父对象。');
+      current = (current as State)[part];
     }
-    return result as State;
+    if (!object(current) && !Array.isArray(current)) throw Error('父级必须是对象或数组。');
+    return { parent: current as Container, key: parts.at(-1)! };
   }
-  return checkedState(merge(checkedState(base), checkedState(update.state)));
-}
-export function validatePreset(value: unknown): StatusPreset {
-  if (!object(value) || typeof value.id !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(value.id) || typeof value.name !== 'string' || !value.name.trim() || value.name.length > 80 || typeof value.template !== 'string' || typeof value.instruction !== 'string' || value.instruction.length > 50_000) throw Error('预设须包含名称、JSON / YAML 模板和更新指令。');
-  parseData(value.template);
-  return { id: value.id, name: value.name.trim(), template: value.template, instruction: value.instruction };
-}
-export function exportPreset(preset: StatusPreset): string {
-  const p = validatePreset(preset);
-  return stringify({ 名称: p.name, 模板: parseData(p.template), 更新指令: p.instruction });
-}
-export function importPreset(text: string, id: string): StatusPreset {
-  const data = parseData(text);
-  if (Object.keys(data).some(key => !['名称', '模板', '更新指令'].includes(key))) throw Error('预设仅接受“名称”“模板”“更新指令”；旧版完整字段请使用转换入口。');
-  if (!object(data.模板)) throw Error('“模板”必须是状态对象。');
-  return validatePreset({ id, name: data.名称, template: stringify(data.模板), instruction: data.更新指令 ?? '' });
-}
-/** Explicit import only. No automatic migration of field permissions or settlement. */
-export function convertLegacyPreset(text: string, id: string): StatusPreset {
-  const data = parseData(text);
-  if (!Array.isArray(data.字段) || !data.字段.length) throw Error('未找到旧版字段列表。');
-  const state: State = {};
-  const rules: string[] = [];
-  for (const field of data.字段) {
-    if (!object(field) || !Array.isArray(field.path) || !field.path.length || field.path.some(key => typeof key !== 'string' || !key || forbidden.has(key))) throw Error('旧版字段路径无效。');
-    let parent: State = state;
-    const path = field.path as string[];
-    for (const part of path.slice(0, -1)) {
-      if (part in parent && !object(parent[part])) throw Error('旧版字段路径互相冲突。');
-      parent[part] ??= {};
-      parent = parent[part] as State;
-    }
-    if (path.at(-1)! in parent) throw Error('旧版字段路径重复。');
-    if (!('default' in field)) throw Error('旧版字段缺少 default。');
-    parent[path.at(-1)!] = field.default as JsonValue;
-    if (typeof field.rule === 'string' && field.rule.trim()) rules.push(path.join('.') + '：' + field.rule);
+  function index(parent: JsonValue[], key: string, insert = false): number {
+    if (insert && key === '-') return parent.length;
+    if (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= parent.length + (insert ? 1 : 0)) throw Error('数组下标越界或无效。');
+    return Number(key);
   }
-  return validatePreset({ id, name: data.名称 ?? '旧版字段转换', template: stringify(checkedState(state)), instruction: rules.join('\n') });
+  function read(parts: string[]): JsonValue {
+    const { parent, key } = locate(parts);
+    if (Array.isArray(parent)) return parent[index(parent, key)];
+    if (!own(parent, key)) throw Error('目标字段不存在。');
+    return parent[key];
+  }
+  function remove(parts: string[]): void {
+    const { parent, key } = locate(parts);
+    if (Array.isArray(parent)) parent.splice(index(parent, key), 1);
+    else { if (!own(parent, key)) throw Error('删除目标不存在。'); delete parent[key]; }
+  }
+  function insert(parts: string[], value: JsonValue, replace = false): void {
+    const { parent, key } = locate(parts);
+    if (Array.isArray(parent)) {
+      const at = index(parent, key, !replace);
+      if (replace) parent[at] = value; else parent.splice(at, 0, value);
+    } else { if (replace && !own(parent, key)) throw Error('replace 目标不存在，请使用 insert。'); parent[key] = value; }
+  }
+  update.operations.forEach((operation, i) => {
+    try {
+      const parts = pointer(operation.path);
+      if (operation.op === 'remove') remove(parts);
+      else if (operation.op === 'move') {
+        const from = pointer(operation.from);
+        if (parts.length > from.length && from.every((part, at) => parts[at] === part)) throw Error('不能将字段移动到自身内部。');
+        const value = read(from);
+        if (JSON.stringify(from) !== JSON.stringify(parts)) { remove(from); insert(parts, value); }
+      } else if (operation.op === 'delta') {
+        const current = read(parts);
+        if (typeof current !== 'number' || typeof operation.value !== 'number' || !Number.isFinite(current + operation.value)) throw Error('delta 只更新有限数字字段。');
+        insert(parts, current + operation.value, true);
+      } else insert(parts, JSON.parse(JSON.stringify(operation.value)) as JsonValue, operation.op === 'replace');
+      checkedState(state);
+    } catch (cause) { throw Error('第 ' + (i + 1) + ' 条操作 ' + operation.path + '：' + (cause instanceof Error ? cause.message : String(cause))); }
+  });
+  return checkedState(state);
+}
+export function validateUniversalConfig(value: unknown): UniversalConfig {
+  if (!object(value) || typeof value.initialVariables !== 'string' || typeof value.updateRules !== 'string' || value.updateRules.length > 50_000) throw Error('通用配置须包含初始变量和更新规则。');
+  parseInitialVariables(value.initialVariables);
+  return { initialVariables: value.initialVariables, updateRules: value.updateRules };
+}
+export function exportUniversalConfig(value: UniversalConfig): string {
+  const config = validateUniversalConfig(value);
+  return stringify({ stat_data: parseInitialVariables(config.initialVariables), 变量更新规则: config.updateRules });
+}
+export function importUniversalConfig(text: string): UniversalConfig {
+  const data = parseData(text);
+  if (Object.keys(data).some(key => !['stat_data', '变量更新规则'].includes(key))) throw Error('通用配置仅接受 stat_data 和“变量更新规则”，不支持预设名称或预设列表。');
+  return validateUniversalConfig({ initialVariables: stringify({ stat_data: checkedState(data.stat_data) }), updateRules: data.变量更新规则 ?? '' });
 }
 export function progressValue(key: string, value: JsonValue, siblings: State = {}): { value: number; max: number; assumed: boolean } | null {
   if (typeof value === 'string') {
-    const ratio = value.match(/^\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*$/);
-    const percent = value.match(/^\s*(\d+(?:\.\d+)?)\s*%\s*$/);
-    if (ratio && Number(ratio[2]) > 0) return { value: Number(ratio[1]), max: Number(ratio[2]), assumed: false };
-    if (percent) return { value: Number(percent[1]), max: 100, assumed: false };
+    const ratio = value.match(/^\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*$/), percent = value.match(/^\s*(\d+(?:\.\d+)?)\s*%\s*$/);
+    if (ratio && Number.isFinite(Number(ratio[1])) && Number.isFinite(Number(ratio[2])) && Number(ratio[2]) > 0) return { value: Number(ratio[1]), max: Number(ratio[2]), assumed: false };
+    if (percent && Number.isFinite(Number(percent[1]))) return { value: Number(percent[1]), max: 100, assumed: false };
   }
   if (typeof value === 'number' && value >= 0 && /^(hp|mp|san|好感度?|进度|体力|生命值|灵力)$/i.test(key)) {
     const max = siblings[key + '上限'] ?? siblings['最大' + key] ?? siblings[key + '_max'];
-    if (typeof max === 'number' && max > 0) return { value, max, assumed: false };
+    if (typeof max === 'number' && Number.isFinite(max) && max > 0) return { value, max, assumed: false };
     if (value <= 100) return { value, max: 100, assumed: true };
   }
   return null;

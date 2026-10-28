@@ -1,5 +1,5 @@
 import { shallowRef, ref } from 'vue';
-export const engineView = shallowRef<any>({ state: null, previous: null, presets: [], history: [], config: {}, floors: [], busy: false, generating: false, writerReady: false, status: '等待状态引擎载入。', error: '', canUpdate: false });
+export const engineView = shallowRef<any>({ stat_data: null, previous_stat_data: null, universal: null, profileName: '通用', history: [], config: {}, floors: [], busy: false, generating: false, writerReady: false, status: '等待状态引擎载入。', error: '', canUpdate: false });
 export const operationError = ref('');
 let engine: any = null, scope = '';
 const token = (view: any) => JSON.stringify([view.profileKey, view.chatId]);
